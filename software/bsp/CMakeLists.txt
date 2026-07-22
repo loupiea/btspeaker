@@ -1,0 +1,16 @@
+idf_component_register(
+    SRCS
+        "src/bsp_board.c"
+        "src/bsp_input.c"
+        "src/bsp_sd.c"
+    INCLUDE_DIRS "include"
+    REQUIRES
+        esp_hw_support
+        spi_flash
+        log
+        driver
+        fatfs
+        sdmmc
+        esp_driver_spi
+        esp_driver_sdspi
+)
