@@ -3,6 +3,7 @@ idf_component_register(
         "src/bsp_board.c"
         "src/bsp_ch376.c"
         "src/bsp_input.c"
+        "src/bsp_oled.c"
         "src/bsp_sd.c"
     INCLUDE_DIRS "include"
     REQUIRES

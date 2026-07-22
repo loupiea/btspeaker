@@ -1,5 +1,6 @@
 #include "bsp_board.h"
 #include "bsp_ch376.h"
+#include "bsp_oled.h"
 #include "esp_err.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
@@ -11,6 +12,11 @@ void app_main(void)
 {
     bsp_board_init();
     bsp_board_print_info();
+
+    esp_err_t oled_result = bsp_oled_run_self_test();
+    if (oled_result != ESP_OK) {
+        ESP_LOGE(TAG, "OLED self-test failed: %s", esp_err_to_name(oled_result));
+    }
 
     uint8_t response = 0;
     uint8_t version = 0;
