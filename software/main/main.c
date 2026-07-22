@@ -1,6 +1,7 @@
 #include "bsp_board.h"
 #include "bsp_ch376.h"
 #include "bsp_oled.h"
+#include "bsp_speaker.h"
 #include "esp_err.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
@@ -16,6 +17,12 @@ void app_main(void)
     esp_err_t oled_result = bsp_oled_run_self_test();
     if (oled_result != ESP_OK) {
         ESP_LOGE(TAG, "OLED self-test failed: %s", esp_err_to_name(oled_result));
+    }
+
+    esp_err_t speaker_result = bsp_speaker_run_self_test();
+    if (speaker_result != ESP_OK) {
+        ESP_LOGE(TAG, "Speaker self-test failed: %s",
+                 esp_err_to_name(speaker_result));
     }
 
     uint8_t response = 0;

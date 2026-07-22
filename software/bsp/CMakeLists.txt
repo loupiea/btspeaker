@@ -4,6 +4,7 @@ idf_component_register(
         "src/bsp_ch376.c"
         "src/bsp_input.c"
         "src/bsp_oled.c"
+        "src/bsp_speaker.c"
         "src/bsp_sd.c"
     INCLUDE_DIRS "include"
     REQUIRES
@@ -15,4 +16,5 @@ idf_component_register(
         sdmmc
         esp_driver_spi
         esp_driver_sdspi
+        esp_driver_i2s
 )
