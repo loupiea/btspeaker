@@ -15,9 +15,9 @@ class SpeakerContractTest(unittest.TestCase):
         self.assertIn("esp_err_t bsp_speaker_init(void);", text)
         self.assertIn("esp_err_t bsp_speaker_run_self_test(void);", text)
 
-    def test_driver_uses_i2s0_and_default_volume_5(self):
+    def test_driver_uses_i2s0_and_default_volume_1(self):
         text = SOURCE.read_text(encoding="utf-8")
-        self.assertIn("BSP_SPEAKER_DEFAULT_VOLUME = 5", text)
+        self.assertIn("BSP_SPEAKER_DEFAULT_VOLUME = 1", text)
         self.assertIn("I2S_NUM_0", text)
         self.assertIn("I2S_ROLE_MASTER", text)
         self.assertIn("I2S_STD_PHILIPS_SLOT_DEFAULT_CONFIG", text)
