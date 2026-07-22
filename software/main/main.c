@@ -1,5 +1,5 @@
 #include "bsp_board.h"
-#include "bsp_sd.h"
+#include "bsp_ch376.h"
 #include "esp_err.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
@@ -12,18 +12,22 @@ void app_main(void)
     bsp_board_init();
     bsp_board_print_info();
 
-    const esp_err_t mount_result = bsp_sd_mount();
-    if (mount_result == ESP_OK) {
-        bsp_sd_print_info();
-        if (bsp_sd_list_root() != ESP_OK) {
-            ESP_LOGW(TAG, "SD directory test failed");
-        }
-        if (bsp_sd_run_file_test() != ESP_OK) {
-            ESP_LOGE(TAG, "SD write/read test failed");
-        }
+    uint8_t response = 0;
+    uint8_t version = 0;
+
+    esp_err_t result = bsp_ch376_init();
+    if (result == ESP_OK) {
+        result = bsp_ch376_check_exist(0x65, &response);
+    }
+    if (result == ESP_OK) {
+        result = bsp_ch376_get_version(&version);
+    }
+
+    if (result == ESP_OK) {
+        ESP_LOGI(TAG, "CH376S self-test passed; version raw=0x%02X", version);
     } else {
-        ESP_LOGE(TAG, "SD test stopped because mount failed: %s",
-                 esp_err_to_name(mount_result));
+        ESP_LOGE(TAG, "CH376S self-test failed: %s, response=0x%02X",
+                 esp_err_to_name(result), response);
     }
 
     while (1) {
