@@ -30,6 +30,9 @@ class AuxContractTest(unittest.TestCase):
         self.assertIn("I2S_ROLE_MASTER", text)
         self.assertIn("I2S_STD_PHILIPS_SLOT_DEFAULT_CONFIG", text)
         self.assertIn("AUX_SELF_TEST_DURATION_MS = 5000", text)
+        self.assertIn("aux_sample_peak", text)
+        self.assertIn("silent_blocks", text)
+        self.assertIn("AUX samples:", text)
         self.assertIn("bsp_speaker_write", text)
 
     def test_speaker_exposes_streaming_helpers(self):

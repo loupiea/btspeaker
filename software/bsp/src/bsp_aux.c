@@ -1,5 +1,6 @@
 #include "bsp_aux.h"
 
+#include <inttypes.h>
 #include <stdint.h>
 
 #include "bsp_pins.h"
@@ -22,9 +23,27 @@ enum {
     AUX_SELF_TEST_DURATION_MS = 5000,
     AUX_FRAMES_PER_BUFFER = 128,
     AUX_PLAYBACK_VOLUME = 5,
+    AUX_SILENCE_THRESHOLD = 32,
 };
 
 static i2s_chan_handle_t s_rx_channel;
+
+static int16_t aux_abs_sample(int16_t sample)
+{
+    return sample == INT16_MIN ? INT16_MAX : (int16_t)(sample < 0 ? -sample : sample);
+}
+
+static int16_t aux_sample_peak(const int16_t *samples, size_t sample_count)
+{
+    int16_t peak = 0;
+    for (size_t i = 0; i < sample_count; ++i) {
+        const int16_t value = aux_abs_sample(samples[i]);
+        if (value > peak) {
+            peak = value;
+        }
+    }
+    return peak;
+}
 
 static esp_err_t es8388_write_reg(uint8_t reg, uint8_t value)
 {
@@ -122,6 +141,9 @@ esp_err_t bsp_aux_run_self_test(void)
     int16_t samples[AUX_FRAMES_PER_BUFFER * 2U];
     const uint32_t end_tick =
         xTaskGetTickCount() + pdMS_TO_TICKS(AUX_SELF_TEST_DURATION_MS);
+    uint32_t blocks_read = 0;
+    uint32_t silent_blocks = 0;
+    int16_t max_peak = 0;
 
     ESP_LOGI(TAG, "AUX self-test started: play external input for %d ms",
              AUX_SELF_TEST_DURATION_MS);
@@ -140,7 +162,18 @@ esp_err_t bsp_aux_run_self_test(void)
         }
 
         if (bytes_read > 0) {
-            result = bsp_speaker_write(samples, bytes_read / sizeof(samples[0]),
+            const size_t samples_read = bytes_read / sizeof(samples[0]);
+            const int16_t peak = aux_sample_peak(samples, samples_read);
+
+            ++blocks_read;
+            if (peak > max_peak) {
+                max_peak = peak;
+            }
+            if (peak < AUX_SILENCE_THRESHOLD) {
+                ++silent_blocks;
+            }
+
+            result = bsp_speaker_write(samples, samples_read,
                                        AUX_PLAYBACK_VOLUME);
             if (result != ESP_OK) {
                 i2s_channel_disable(s_rx_channel);
@@ -151,6 +184,10 @@ esp_err_t bsp_aux_run_self_test(void)
             }
         }
     }
+
+    ESP_LOGI(TAG, "AUX samples: blocks=%" PRIu32 ", silent_blocks=%" PRIu32
+             ", max_peak=%d",
+             blocks_read, silent_blocks, max_peak);
 
     esp_err_t result = i2s_channel_disable(s_rx_channel);
     const esp_err_t speaker_result = bsp_speaker_stop();
