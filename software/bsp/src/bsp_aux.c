@@ -78,7 +78,7 @@ static esp_err_t aux_i2s_init(void)
         .slot_cfg = I2S_STD_PHILIPS_SLOT_DEFAULT_CONFIG(
             I2S_DATA_BIT_WIDTH_16BIT, I2S_SLOT_MODE_STEREO),
         .gpio_cfg = {
-            .mclk = BSP_AUX_MCLK_GPIO,
+            .mclk = I2S_GPIO_UNUSED,
             .bclk = BSP_AUX_BCLK_GPIO,
             .ws = BSP_AUX_LRCLK_GPIO,
             .dout = I2S_GPIO_UNUSED,
@@ -100,7 +100,7 @@ static esp_err_t aux_i2s_init(void)
         return result;
     }
 
-    ESP_LOGI(TAG, "AUX I2S initialized: MCLK=%d, BCLK=%d, LRCLK=%d, DIN=%d",
+    ESP_LOGI(TAG, "AUX I2S initialized: MCLK GPIO%d skipped, BCLK=%d, LRCLK=%d, DIN=%d",
              BSP_AUX_MCLK_GPIO, BSP_AUX_BCLK_GPIO,
              BSP_AUX_LRCLK_GPIO, BSP_AUX_DIN_GPIO);
     return ESP_OK;

@@ -22,6 +22,7 @@ class AuxContractTest(unittest.TestCase):
         self.assertIn("ES8388_I2C_ADDRESS = 0x10", text)
         self.assertIn("I2C_NUM_0", text)
         self.assertIn("I2S_NUM_1", text)
+        self.assertIn("I2S_GPIO_UNUSED", text)
         self.assertIn("BSP_AUX_MCLK_GPIO", text)
         self.assertIn("BSP_AUX_BCLK_GPIO", text)
         self.assertIn("BSP_AUX_LRCLK_GPIO", text)
