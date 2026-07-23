@@ -1,4 +1,5 @@
 #include "bsp_board.h"
+#include "bsp_aux.h"
 #include "bsp_ch376.h"
 #include "bsp_oled.h"
 #include "bsp_speaker.h"
@@ -23,6 +24,11 @@ void app_main(void)
     if (speaker_result != ESP_OK) {
         ESP_LOGE(TAG, "Speaker self-test failed: %s",
                  esp_err_to_name(speaker_result));
+    }
+
+    esp_err_t aux_result = bsp_aux_run_self_test();
+    if (aux_result != ESP_OK) {
+        ESP_LOGE(TAG, "AUX self-test failed: %s", esp_err_to_name(aux_result));
     }
 
     uint8_t response = 0;

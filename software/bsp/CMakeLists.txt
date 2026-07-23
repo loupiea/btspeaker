@@ -1,5 +1,6 @@
 idf_component_register(
     SRCS
+        "src/bsp_aux.c"
         "src/bsp_board.c"
         "src/bsp_ch376.c"
         "src/bsp_input.c"

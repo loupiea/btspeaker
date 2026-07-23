@@ -1,5 +1,6 @@
 #include "bsp_speaker.h"
 
+#include <stdbool.h>
 #include <stdint.h>
 #include <stddef.h>
 
@@ -24,12 +25,24 @@ enum {
 };
 
 static i2s_chan_handle_t s_tx_channel;
+static bool s_speaker_started;
 
-static int16_t speaker_sample_for_volume(uint8_t volume, uint32_t frame_index)
+static uint8_t clamp_volume(uint8_t volume)
 {
     if (volume > SPEAKER_MAX_VOLUME) {
         volume = SPEAKER_MAX_VOLUME;
     }
+    return volume;
+}
+
+static int16_t speaker_scale_sample(int16_t sample, uint8_t volume)
+{
+    return (int16_t)((int32_t)sample * clamp_volume(volume) / SPEAKER_MAX_VOLUME);
+}
+
+static int16_t speaker_sample_for_volume(uint8_t volume, uint32_t frame_index)
+{
+    volume = clamp_volume(volume);
 
     const uint32_t frames_per_half_cycle =
         SPEAKER_SAMPLE_RATE_HZ / (SPEAKER_TEST_TONE_HZ * 2U);
@@ -96,6 +109,74 @@ esp_err_t bsp_speaker_init(void)
     return ESP_OK;
 }
 
+esp_err_t bsp_speaker_start(void)
+{
+    ESP_RETURN_ON_ERROR(bsp_speaker_init(), TAG, "Speaker init failed");
+
+    if (!s_speaker_started) {
+        ESP_RETURN_ON_ERROR(i2s_channel_enable(s_tx_channel), TAG,
+                            "Failed to enable I2S speaker channel");
+
+        esp_err_t result = gpio_set_level(BSP_AMP_SD_GPIO, 1);
+        if (result != ESP_OK) {
+            i2s_channel_disable(s_tx_channel);
+            ESP_LOGE(TAG, "Failed to enable amplifier: %s",
+                     esp_err_to_name(result));
+            return result;
+        }
+        s_speaker_started = true;
+    }
+
+    return ESP_OK;
+}
+
+esp_err_t bsp_speaker_write(const int16_t *samples, size_t sample_count,
+                            uint8_t volume)
+{
+    ESP_RETURN_ON_FALSE(samples != NULL, ESP_ERR_INVALID_ARG, TAG,
+                        "Speaker samples are NULL");
+    ESP_RETURN_ON_ERROR(bsp_speaker_start(), TAG, "Speaker start failed");
+
+    int16_t scaled_samples[SPEAKER_FRAMES_PER_BUFFER * 2U];
+    size_t sample_index = 0;
+
+    while (sample_index < sample_count) {
+        const size_t samples_this_buffer =
+            (sample_count - sample_index) > (SPEAKER_FRAMES_PER_BUFFER * 2U)
+                ? (SPEAKER_FRAMES_PER_BUFFER * 2U)
+                : (sample_count - sample_index);
+
+        for (size_t i = 0; i < samples_this_buffer; ++i) {
+            scaled_samples[i] = speaker_scale_sample(samples[sample_index + i],
+                                                     volume);
+        }
+
+        size_t bytes_written = 0;
+        ESP_RETURN_ON_ERROR(
+            i2s_channel_write(s_tx_channel, scaled_samples,
+                              samples_this_buffer * sizeof(scaled_samples[0]),
+                              &bytes_written, 1000),
+            TAG, "Failed to write speaker samples");
+        sample_index += samples_this_buffer;
+    }
+
+    return ESP_OK;
+}
+
+esp_err_t bsp_speaker_stop(void)
+{
+    if (!s_speaker_started) {
+        return ESP_OK;
+    }
+
+    ESP_RETURN_ON_ERROR(gpio_set_level(BSP_AMP_SD_GPIO, 0), TAG,
+                        "Failed to mute amplifier");
+    ESP_RETURN_ON_ERROR(i2s_channel_disable(s_tx_channel), TAG,
+                        "Failed to disable I2S speaker channel");
+    s_speaker_started = false;
+    return ESP_OK;
+}
+
 esp_err_t bsp_speaker_run_self_test(void)
 {
     ESP_RETURN_ON_ERROR(bsp_speaker_init(), TAG, "Speaker init failed");
@@ -105,15 +186,7 @@ esp_err_t bsp_speaker_run_self_test(void)
         SPEAKER_SAMPLE_RATE_HZ * SPEAKER_TEST_DURATION_MS / 1000U;
     uint32_t frame_index = 0;
 
-    ESP_RETURN_ON_ERROR(i2s_channel_enable(s_tx_channel), TAG,
-                        "Failed to enable I2S speaker channel");
-
-    esp_err_t result = gpio_set_level(BSP_AMP_SD_GPIO, 1);
-    if (result != ESP_OK) {
-        i2s_channel_disable(s_tx_channel);
-        ESP_LOGE(TAG, "Failed to enable amplifier: %s", esp_err_to_name(result));
-        return result;
-    }
+    ESP_RETURN_ON_ERROR(bsp_speaker_start(), TAG, "Failed to start speaker");
 
     ESP_LOGI(TAG, "Speaker self-test tone started: %d Hz, volume=%d/50",
              SPEAKER_TEST_TONE_HZ, BSP_SPEAKER_DEFAULT_VOLUME);
@@ -132,27 +205,16 @@ esp_err_t bsp_speaker_run_self_test(void)
             samples[i * 2U + 1U] = sample;
         }
 
-        size_t bytes_written = 0;
-        result =
-            i2s_channel_write(s_tx_channel, samples,
-                              frames_this_buffer * 2U * sizeof(samples[0]),
-                              &bytes_written, 1000);
-        if (result != ESP_OK) {
-            gpio_set_level(BSP_AMP_SD_GPIO, 0);
-            i2s_channel_disable(s_tx_channel);
-            ESP_LOGE(TAG, "Failed to write speaker samples: %s",
-                     esp_err_to_name(result));
-            return result;
-        }
+        ESP_RETURN_ON_ERROR(
+            bsp_speaker_write(samples, frames_this_buffer * 2U,
+                              SPEAKER_MAX_VOLUME),
+            TAG, "Failed to write speaker self-test samples");
 
         frame_index += frames_this_buffer;
     }
 
     vTaskDelay(pdMS_TO_TICKS(20));
-    ESP_RETURN_ON_ERROR(gpio_set_level(BSP_AMP_SD_GPIO, 0), TAG,
-                        "Failed to mute amplifier after self-test");
-    ESP_RETURN_ON_ERROR(i2s_channel_disable(s_tx_channel), TAG,
-                        "Failed to disable I2S speaker channel");
+    ESP_RETURN_ON_ERROR(bsp_speaker_stop(), TAG, "Failed to stop speaker");
 
     ESP_LOGI(TAG, "Speaker self-test tone finished");
     return ESP_OK;
