@@ -35,6 +35,8 @@ static void enter_mode(bsp_mode_t mode)
         }
     } else if (mode == BSP_MODE_USB) {
         ESP_LOGI(TAG, "U Disk mode selected; playback will be added after USB file read test");
+    } else if (mode == BSP_MODE_TF) {
+        ESP_LOGI(TAG, "TF Card mode selected; playback will be added after TF card read test");
     } else if (mode == BSP_MODE_AUX) {
         ESP_LOGI(TAG, "AUX mode selected; audio path waits for MCLK routing on next board");
     }
