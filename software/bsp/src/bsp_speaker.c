@@ -15,12 +15,12 @@
 static const char *TAG = "bsp_speaker";
 
 enum {
-    BSP_SPEAKER_DEFAULT_VOLUME = 1,
+    BSP_SPEAKER_DEFAULT_VOLUME = 5,
     SPEAKER_SAMPLE_RATE_HZ = 16000,
     SPEAKER_TEST_TONE_HZ = 1000,
     SPEAKER_TEST_DURATION_MS = 1000,
     SPEAKER_FRAMES_PER_BUFFER = 128,
-    SPEAKER_MAX_VOLUME = 10,
+    SPEAKER_MAX_VOLUME = 50,
 };
 
 static i2s_chan_handle_t s_tx_channel;
@@ -33,7 +33,7 @@ static int16_t speaker_sample_for_volume(uint8_t volume, uint32_t frame_index)
 
     const uint32_t frames_per_half_cycle =
         SPEAKER_SAMPLE_RATE_HZ / (SPEAKER_TEST_TONE_HZ * 2U);
-    const int16_t amplitude = (int16_t)(volume * 2000);
+    const int16_t amplitude = (int16_t)(volume * 400);
 
     return ((frame_index / frames_per_half_cycle) % 2U) == 0U
                ? amplitude
@@ -115,7 +115,7 @@ esp_err_t bsp_speaker_run_self_test(void)
         return result;
     }
 
-    ESP_LOGI(TAG, "Speaker self-test tone started: %d Hz, volume=%d/10",
+    ESP_LOGI(TAG, "Speaker self-test tone started: %d Hz, volume=%d/50",
              SPEAKER_TEST_TONE_HZ, BSP_SPEAKER_DEFAULT_VOLUME);
 
     while (frame_index < total_frames) {
