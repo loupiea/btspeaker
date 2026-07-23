@@ -1,5 +1,7 @@
 #pragma once
 
+#include <stddef.h>
+
 #include "esp_err.h"
 
 #ifdef __cplusplus
@@ -11,6 +13,12 @@ esp_err_t bsp_oled_init(void);
 
 /** Show a simple full-screen pattern so the panel can be visually checked. */
 esp_err_t bsp_oled_run_self_test(void);
+
+/** Clear all OLED pixels. */
+esp_err_t bsp_oled_clear(void);
+
+/** Show two ASCII text lines on the OLED. */
+esp_err_t bsp_oled_show_lines(const char *line1, const char *line2);
 
 #ifdef __cplusplus
 }
