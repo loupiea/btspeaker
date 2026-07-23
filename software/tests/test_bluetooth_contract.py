@@ -38,10 +38,12 @@ class BluetoothContractTest(unittest.TestCase):
         self.assertIn("CONFIG_BT_CLASSIC_ENABLED=y", text)
         self.assertIn("CONFIG_BT_A2DP_ENABLE=y", text)
 
-    def test_main_starts_bluetooth_and_skips_aux_self_test(self):
+    def test_main_can_start_bluetooth_and_skips_aux_self_test(self):
         text = MAIN.read_text(encoding="utf-8")
         self.assertIn('#include "bsp_bluetooth.h"', text)
         self.assertIn("bsp_bluetooth_a2dp_sink_start()", text)
+        self.assertIn("if (mode == BSP_MODE_BLUETOOTH)", text)
+        self.assertIn("current_mode = BSP_MODE_USB", text)
         self.assertNotIn("bsp_aux_run_self_test()", text)
 
 

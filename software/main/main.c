@@ -45,11 +45,6 @@ void app_main(void)
     bsp_board_init();
     bsp_board_print_info();
 
-    esp_err_t oled_result = bsp_oled_run_self_test();
-    if (oled_result != ESP_OK) {
-        ESP_LOGE(TAG, "OLED self-test failed: %s", esp_err_to_name(oled_result));
-    }
-
     uint8_t response = 0;
     uint8_t version = 0;
 
@@ -73,7 +68,7 @@ void app_main(void)
         ESP_LOGE(TAG, "Input init failed: %s", esp_err_to_name(input_result));
     }
 
-    bsp_mode_t current_mode = BSP_MODE_BLUETOOTH;
+    bsp_mode_t current_mode = BSP_MODE_USB;
     enter_mode(current_mode);
 
     while (1) {

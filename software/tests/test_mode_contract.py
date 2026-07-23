@@ -51,6 +51,7 @@ class ModeContractTest(unittest.TestCase):
         self.assertIn('#include "bsp_mode.h"', text)
         self.assertIn("bsp_input_init()", text)
         self.assertIn("BSP_MODE_BLUETOOTH", text)
+        self.assertIn("current_mode = BSP_MODE_USB", text)
         self.assertIn("input_event.source_pressed", text)
         self.assertIn("bsp_mode_next(current_mode)", text)
         self.assertIn("bsp_oled_show_lines", text)

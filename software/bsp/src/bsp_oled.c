@@ -117,7 +117,12 @@ static esp_err_t oled_write(uint8_t control, const uint8_t *data, size_t length)
 
 static esp_err_t oled_write_command(uint8_t command)
 {
-    return oled_write(OLED_CONTROL_COMMAND, &command, 1);
+    esp_err_t result = oled_write(OLED_CONTROL_COMMAND, &command, 1);
+    if (result != ESP_OK) {
+        ESP_LOGE(TAG, "OLED command 0x%02X failed: %s",
+                 command, esp_err_to_name(result));
+    }
+    return result;
 }
 
 static esp_err_t oled_set_page(uint8_t page)
@@ -202,25 +207,6 @@ esp_err_t bsp_oled_init(void)
 
     ESP_LOGI(TAG, "OLED initialized: address=0x%02X, SDA=%d, SCL=%d",
              OLED_I2C_ADDRESS, BSP_I2C_SDA_GPIO, BSP_I2C_SCL_GPIO);
-    return ESP_OK;
-}
-
-esp_err_t bsp_oled_run_self_test(void)
-{
-    ESP_RETURN_ON_ERROR(bsp_oled_init(), TAG, "OLED init failed");
-
-    uint8_t line[OLED_WIDTH];
-    for (uint8_t page = 0; page < OLED_PAGES; ++page) {
-        for (size_t x = 0; x < OLED_WIDTH; ++x) {
-            line[x] = ((x / 8U + page) % 2U) == 0U ? 0xFF : 0x00;
-        }
-
-        ESP_RETURN_ON_ERROR(oled_set_page(page), TAG, "Failed to select OLED page");
-        ESP_RETURN_ON_ERROR(oled_write(OLED_CONTROL_DATA, line, sizeof(line)), TAG,
-                            "Failed to write OLED self-test pattern");
-    }
-
-    ESP_LOGI(TAG, "OLED self-test pattern displayed");
     return ESP_OK;
 }
 
