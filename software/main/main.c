@@ -50,12 +50,6 @@ void app_main(void)
         ESP_LOGE(TAG, "OLED self-test failed: %s", esp_err_to_name(oled_result));
     }
 
-    esp_err_t speaker_result = bsp_speaker_run_self_test();
-    if (speaker_result != ESP_OK) {
-        ESP_LOGE(TAG, "Speaker self-test failed: %s",
-                 esp_err_to_name(speaker_result));
-    }
-
     uint8_t response = 0;
     uint8_t version = 0;
 

@@ -19,8 +19,6 @@ static const char *TAG = "bsp_speaker";
 enum {
     BSP_SPEAKER_DEFAULT_VOLUME = 5,
     SPEAKER_SAMPLE_RATE_HZ = 16000,
-    SPEAKER_TEST_TONE_HZ = 1000,
-    SPEAKER_TEST_DURATION_MS = 1000,
     SPEAKER_FRAMES_PER_BUFFER = 128,
     SPEAKER_MAX_VOLUME = 50,
 };
@@ -40,19 +38,6 @@ static uint8_t clamp_volume(uint8_t volume)
 static int16_t speaker_scale_sample(int16_t sample, uint8_t volume)
 {
     return (int16_t)((int32_t)sample * clamp_volume(volume) / SPEAKER_MAX_VOLUME);
-}
-
-static int16_t speaker_sample_for_volume(uint8_t volume, uint32_t frame_index)
-{
-    volume = clamp_volume(volume);
-
-    const uint32_t frames_per_half_cycle =
-        SPEAKER_SAMPLE_RATE_HZ / (SPEAKER_TEST_TONE_HZ * 2U);
-    const int16_t amplitude = (int16_t)(volume * 400);
-
-    return ((frame_index / frames_per_half_cycle) % 2U) == 0U
-               ? amplitude
-               : (int16_t)-amplitude;
 }
 
 esp_err_t bsp_speaker_init(void)
@@ -218,48 +203,5 @@ esp_err_t bsp_speaker_stop(void)
     ESP_RETURN_ON_ERROR(i2s_channel_disable(s_tx_channel), TAG,
                         "Failed to disable I2S speaker channel");
     s_speaker_started = false;
-    return ESP_OK;
-}
-
-esp_err_t bsp_speaker_run_self_test(void)
-{
-    ESP_RETURN_ON_ERROR(bsp_speaker_init(), TAG, "Speaker init failed");
-
-    int16_t samples[SPEAKER_FRAMES_PER_BUFFER * 2U];
-    const uint32_t total_frames =
-        SPEAKER_SAMPLE_RATE_HZ * SPEAKER_TEST_DURATION_MS / 1000U;
-    uint32_t frame_index = 0;
-
-    ESP_RETURN_ON_ERROR(bsp_speaker_start(), TAG, "Failed to start speaker");
-
-    ESP_LOGI(TAG, "Speaker self-test tone started: %d Hz, volume=%d/50",
-             SPEAKER_TEST_TONE_HZ, BSP_SPEAKER_DEFAULT_VOLUME);
-
-    while (frame_index < total_frames) {
-        const uint32_t frames_this_buffer =
-            (total_frames - frame_index) > SPEAKER_FRAMES_PER_BUFFER
-                ? SPEAKER_FRAMES_PER_BUFFER
-                : (total_frames - frame_index);
-
-        for (uint32_t i = 0; i < frames_this_buffer; ++i) {
-            const int16_t sample =
-                speaker_sample_for_volume(BSP_SPEAKER_DEFAULT_VOLUME,
-                                          frame_index + i);
-            samples[i * 2U] = sample;
-            samples[i * 2U + 1U] = sample;
-        }
-
-        ESP_RETURN_ON_ERROR(
-            bsp_speaker_write(samples, frames_this_buffer * 2U,
-                              SPEAKER_MAX_VOLUME),
-            TAG, "Failed to write speaker self-test samples");
-
-        frame_index += frames_this_buffer;
-    }
-
-    vTaskDelay(pdMS_TO_TICKS(20));
-    ESP_RETURN_ON_ERROR(bsp_speaker_stop(), TAG, "Failed to stop speaker");
-
-    ESP_LOGI(TAG, "Speaker self-test tone finished");
     return ESP_OK;
 }
