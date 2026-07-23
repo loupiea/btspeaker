@@ -1,6 +1,7 @@
 idf_component_register(
     SRCS
         "src/bsp_aux.c"
+        "src/bsp_bluetooth.c"
         "src/bsp_board.c"
         "src/bsp_ch376.c"
         "src/bsp_input.c"
@@ -18,4 +19,6 @@ idf_component_register(
         esp_driver_spi
         esp_driver_sdspi
         esp_driver_i2s
+        bt
+        nvs_flash
 )

@@ -50,10 +50,10 @@ class AuxContractTest(unittest.TestCase):
         self.assertIn('"src/bsp_aux.c"', text)
         self.assertIn("esp_driver_i2s", text)
 
-    def test_main_runs_aux_test(self):
+    def test_main_skips_aux_test_until_mclk_is_routed(self):
         text = MAIN.read_text(encoding="utf-8")
-        self.assertIn('#include "bsp_aux.h"', text)
-        self.assertIn("bsp_aux_run_self_test()", text)
+        self.assertNotIn('#include "bsp_aux.h"', text)
+        self.assertNotIn("bsp_aux_run_self_test()", text)
 
 
 if __name__ == "__main__":

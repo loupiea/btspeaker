@@ -1,5 +1,5 @@
 #include "bsp_board.h"
-#include "bsp_aux.h"
+#include "bsp_bluetooth.h"
 #include "bsp_ch376.h"
 #include "bsp_oled.h"
 #include "bsp_speaker.h"
@@ -26,11 +26,6 @@ void app_main(void)
                  esp_err_to_name(speaker_result));
     }
 
-    esp_err_t aux_result = bsp_aux_run_self_test();
-    if (aux_result != ESP_OK) {
-        ESP_LOGE(TAG, "AUX self-test failed: %s", esp_err_to_name(aux_result));
-    }
-
     uint8_t response = 0;
     uint8_t version = 0;
 
@@ -47,6 +42,14 @@ void app_main(void)
     } else {
         ESP_LOGE(TAG, "CH376S self-test failed: %s, response=0x%02X",
                  esp_err_to_name(result), response);
+    }
+
+    esp_err_t bluetooth_result = bsp_bluetooth_a2dp_sink_start();
+    if (bluetooth_result != ESP_OK) {
+        ESP_LOGE(TAG, "Bluetooth A2DP start failed: %s",
+                 esp_err_to_name(bluetooth_result));
+    } else {
+        ESP_LOGI(TAG, "Bluetooth is discoverable; connect to BT Speaker");
     }
 
     while (1) {

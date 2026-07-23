@@ -1,6 +1,7 @@
 #include "bsp_speaker.h"
 
 #include <stdbool.h>
+#include <inttypes.h>
 #include <stdint.h>
 #include <stddef.h>
 
@@ -26,6 +27,7 @@ enum {
 
 static i2s_chan_handle_t s_tx_channel;
 static bool s_speaker_started;
+static uint32_t s_sample_rate_hz = SPEAKER_SAMPLE_RATE_HZ;
 
 static uint8_t clamp_volume(uint8_t volume)
 {
@@ -77,7 +79,7 @@ esp_err_t bsp_speaker_init(void)
                         "Failed to allocate I2S0 TX channel");
 
     const i2s_std_config_t std_cfg = {
-        .clk_cfg = I2S_STD_CLK_DEFAULT_CONFIG(SPEAKER_SAMPLE_RATE_HZ),
+        .clk_cfg = I2S_STD_CLK_DEFAULT_CONFIG(s_sample_rate_hz),
         .slot_cfg = I2S_STD_PHILIPS_SLOT_DEFAULT_CONFIG(
             I2S_DATA_BIT_WIDTH_16BIT, I2S_SLOT_MODE_STEREO),
         .gpio_cfg = {
@@ -106,6 +108,48 @@ esp_err_t bsp_speaker_init(void)
     ESP_LOGI(TAG, "Speaker I2S initialized: BCLK=%d, LRCLK=%d, DOUT=%d, SD=%d",
              BSP_AMP_BCLK_GPIO, BSP_AMP_LRCLK_GPIO,
              BSP_AMP_DOUT_GPIO, BSP_AMP_SD_GPIO);
+    return ESP_OK;
+}
+
+esp_err_t bsp_speaker_set_sample_rate(uint32_t sample_rate_hz)
+{
+    ESP_RETURN_ON_FALSE(sample_rate_hz > 0, ESP_ERR_INVALID_ARG, TAG,
+                        "Invalid speaker sample rate");
+    ESP_RETURN_ON_ERROR(bsp_speaker_init(), TAG, "Speaker init failed");
+
+    if (s_sample_rate_hz == sample_rate_hz) {
+        return ESP_OK;
+    }
+
+    const bool was_started = s_speaker_started;
+    if (was_started) {
+        ESP_RETURN_ON_ERROR(i2s_channel_disable(s_tx_channel), TAG,
+                            "Failed to disable I2S before clock change");
+        s_speaker_started = false;
+    }
+
+    i2s_std_clk_config_t clk_cfg = I2S_STD_CLK_DEFAULT_CONFIG(sample_rate_hz);
+    esp_err_t result = i2s_channel_reconfig_std_clock(s_tx_channel, &clk_cfg);
+    if (result != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to reconfigure speaker sample rate to %" PRIu32
+                      " Hz: %s",
+                 sample_rate_hz, esp_err_to_name(result));
+        if (was_started) {
+            (void)i2s_channel_enable(s_tx_channel);
+            s_speaker_started = true;
+        }
+        return result;
+    }
+
+    s_sample_rate_hz = sample_rate_hz;
+
+    if (was_started) {
+        ESP_RETURN_ON_ERROR(i2s_channel_enable(s_tx_channel), TAG,
+                            "Failed to re-enable I2S after clock change");
+        s_speaker_started = true;
+    }
+
+    ESP_LOGI(TAG, "Speaker sample rate set to %" PRIu32 " Hz", sample_rate_hz);
     return ESP_OK;
 }
 

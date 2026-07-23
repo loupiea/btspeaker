@@ -19,6 +19,9 @@ esp_err_t bsp_speaker_start(void);
 esp_err_t bsp_speaker_write(const int16_t *samples, size_t sample_count,
                             uint8_t volume);
 
+/** Reconfigure the speaker stream sample rate. */
+esp_err_t bsp_speaker_set_sample_rate(uint32_t sample_rate_hz);
+
 /** Stop the speaker stream output path and mute the amplifiers. */
 esp_err_t bsp_speaker_stop(void);
 
