@@ -22,6 +22,7 @@ enum {
     CH376_CMD_GET_STATUS = 0x22,
     CH376_CMD_RD_USB_DATA0 = 0x27,
     CH376_CMD_SET_FILE_NAME = 0x2F,
+    CH376_CMD_DISK_CONNECT = 0x30,
     CH376_CMD_DISK_MOUNT = 0x31,
     CH376_CMD_FILE_OPEN = 0x32,
     CH376_CMD_FILE_CLOSE = 0x36,
@@ -31,8 +32,11 @@ enum {
     CH376_CLOSE_UPDATE_LENGTH = 0x00,
     CH376_RET_SUCCESS = 0x51,
     CH376_STATUS_USB_INT_SUCCESS = 0x14,
+    CH376_STATUS_USB_INT_CONNECT = 0x15,
+    CH376_STATUS_USB_INT_USB_READY = 0x18,
     CH376_STATUS_USB_INT_DISK_READ = 0x1D,
     CH376_STATUS_ERR_OPEN_DIR = 0x41,
+    CH376_MOUNT_ATTEMPTS = 5,
     CH376_MAX_FILE_READ_CHUNK = 255,
     CH376_COMMAND_TIMEOUT_MS = 2000,
     CH376_POLL_DELAY_MS = 10,
@@ -127,15 +131,52 @@ static esp_err_t wait_status(uint8_t *status)
     return ESP_ERR_TIMEOUT;
 }
 
-static esp_err_t expect_success_status(const char *operation)
+static bool status_is_usb_ready(uint8_t status)
 {
+    return status == CH376_STATUS_USB_INT_SUCCESS ||
+           status == CH376_STATUS_USB_INT_CONNECT ||
+           status == CH376_STATUS_USB_INT_USB_READY;
+}
+
+static esp_err_t connect_usb_disk(void)
+{
+    const uint8_t disk_connect = CH376_CMD_DISK_CONNECT;
+    ESP_RETURN_ON_ERROR(command_write_bytes(&disk_connect, 1), TAG,
+                        "DISK_CONNECT transfer failed");
+
     uint8_t status = 0;
-    ESP_RETURN_ON_ERROR(wait_status(&status), TAG, "Failed to wait status");
-    if (status != CH376_STATUS_USB_INT_SUCCESS) {
-        ESP_LOGE(TAG, "%s failed, CH376 status=0x%02X", operation, status);
+    ESP_RETURN_ON_ERROR(wait_status(&status), TAG, "DISK_CONNECT wait failed");
+    ESP_LOGI(TAG, "DISK_CONNECT status=0x%02X", status);
+    if (!status_is_usb_ready(status)) {
+        ESP_LOGE(TAG, "DISK_CONNECT failed, CH376 status=0x%02X", status);
         return ESP_FAIL;
     }
     return ESP_OK;
+}
+
+static esp_err_t mount_usb_disk(void)
+{
+    const uint8_t disk_mount = CH376_CMD_DISK_MOUNT;
+    uint8_t last_status = 0;
+
+    for (int attempt = 1; attempt <= CH376_MOUNT_ATTEMPTS; ++attempt) {
+        ESP_RETURN_ON_ERROR(command_write_bytes(&disk_mount, 1), TAG,
+                            "DISK_MOUNT transfer failed");
+
+        uint8_t status = 0;
+        ESP_RETURN_ON_ERROR(wait_status(&status), TAG, "DISK_MOUNT wait failed");
+        last_status = status;
+        ESP_LOGI(TAG, "DISK_MOUNT attempt %d/%d status=0x%02X", attempt,
+                 CH376_MOUNT_ATTEMPTS, status);
+        if (status == CH376_STATUS_USB_INT_SUCCESS) {
+            return ESP_OK;
+        }
+
+        vTaskDelay(pdMS_TO_TICKS(250));
+    }
+
+    ESP_LOGE(TAG, "DISK_MOUNT failed, last CH376 status=0x%02X", last_status);
+    return ESP_FAIL;
 }
 
 esp_err_t bsp_ch376_init(void)
@@ -289,11 +330,9 @@ esp_err_t bsp_ch376_usb_disk_mount(void)
         return ESP_ERR_INVALID_RESPONSE;
     }
 
-    const uint8_t disk_mount = CH376_CMD_DISK_MOUNT;
-    ESP_RETURN_ON_ERROR(command_write_bytes(&disk_mount, 1), TAG,
-                        "DISK_MOUNT transfer failed");
-    ESP_RETURN_ON_ERROR(expect_success_status("DISK_MOUNT"), TAG,
-                        "DISK_MOUNT status failed");
+    vTaskDelay(pdMS_TO_TICKS(200));
+    ESP_RETURN_ON_ERROR(connect_usb_disk(), TAG, "DISK_CONNECT status failed");
+    ESP_RETURN_ON_ERROR(mount_usb_disk(), TAG, "DISK_MOUNT status failed");
 
     ESP_LOGI(TAG, "USB disk mounted through CH376S");
     return ESP_OK;

@@ -22,12 +22,21 @@ class UsbPlayerContractTest(unittest.TestCase):
     def test_ch376_uses_usb_host_file_commands(self):
         source = CH376_SOURCE.read_text(encoding="utf-8")
         self.assertIn("CH376_CMD_SET_USB_MODE = 0x15", source)
+        self.assertIn("CH376_CMD_DISK_CONNECT = 0x30", source)
         self.assertIn("CH376_CMD_DISK_MOUNT = 0x31", source)
         self.assertIn("CH376_CMD_SET_FILE_NAME = 0x2F", source)
         self.assertIn("CH376_CMD_FILE_OPEN = 0x32", source)
         self.assertIn("CH376_CMD_BYTE_READ = 0x3A", source)
         self.assertIn("CH376_CMD_BYTE_RD_GO = 0x3B", source)
         self.assertIn("CH376_CMD_RD_USB_DATA0 = 0x27", source)
+
+    def test_ch376_mount_waits_for_usb_connection_and_retries(self):
+        source = CH376_SOURCE.read_text(encoding="utf-8")
+        self.assertIn("CH376_STATUS_USB_INT_CONNECT = 0x15", source)
+        self.assertIn("CH376_STATUS_USB_INT_USB_READY = 0x18", source)
+        self.assertIn("CH376_MOUNT_ATTEMPTS", source)
+        self.assertIn("DISK_CONNECT", source)
+        self.assertIn("DISK_MOUNT attempt", source)
 
     def test_usb_player_api_and_wav_contract(self):
         header = USB_HEADER.read_text(encoding="utf-8")
