@@ -40,6 +40,7 @@ enum {
     CH376_STATUS_ERR_OPEN_DIR = 0x41,
     CH376_MOUNT_ATTEMPTS = 5,
     CH376_RESET_DELAY_MS = 80,
+    CH376_SINGLE_PACKET_READ = 64,
     CH376_MAX_FILE_READ_CHUNK = 255,
     CH376_COMMAND_TIMEOUT_MS = 2000,
     CH376_POLL_DELAY_MS = 10,
@@ -418,18 +419,6 @@ static esp_err_t read_usb_data0(uint8_t *buffer, size_t buffer_size,
     return ESP_OK;
 }
 
-static esp_err_t continue_byte_read(uint8_t *status)
-{
-    ESP_RETURN_ON_FALSE(status != NULL, ESP_ERR_INVALID_ARG, TAG,
-                        "Status pointer is NULL");
-
-    const uint8_t byte_rd_go = CH376_CMD_BYTE_RD_GO;
-    ESP_RETURN_ON_ERROR(command_write_bytes(&byte_rd_go, 1), TAG,
-                        "BYTE_RD_GO transfer failed");
-    ESP_RETURN_ON_ERROR(wait_status(status), TAG, "BYTE_RD_GO wait failed");
-    return ESP_OK;
-}
-
 esp_err_t bsp_ch376_file_read(uint8_t *buffer, size_t buffer_size,
                               size_t *bytes_read)
 {
@@ -443,8 +432,8 @@ esp_err_t bsp_ch376_file_read(uint8_t *buffer, size_t buffer_size,
     }
 
     const uint16_t request =
-        (uint16_t)(buffer_size > CH376_MAX_FILE_READ_CHUNK
-                       ? CH376_MAX_FILE_READ_CHUNK
+        (uint16_t)(buffer_size > CH376_SINGLE_PACKET_READ
+                       ? CH376_SINGLE_PACKET_READ
                        : buffer_size);
     const uint8_t byte_read[] = {
         CH376_CMD_BYTE_READ,
@@ -454,38 +443,17 @@ esp_err_t bsp_ch376_file_read(uint8_t *buffer, size_t buffer_size,
     ESP_RETURN_ON_ERROR(command_write_bytes(byte_read, sizeof(byte_read)), TAG,
                         "BYTE_READ transfer failed");
 
-    while (*bytes_read < buffer_size) {
-        uint8_t status = 0;
-        ESP_RETURN_ON_ERROR(wait_status(&status), TAG, "BYTE_READ wait failed");
-        if (status == CH376_STATUS_USB_INT_SUCCESS) {
-            return ESP_OK;
-        }
-        if (status != CH376_STATUS_USB_INT_DISK_READ) {
-            ESP_LOGE(TAG, "BYTE_READ failed, CH376 status=0x%02X", status);
-            return ESP_FAIL;
-        }
-
-        size_t chunk_read = 0;
-        ESP_RETURN_ON_ERROR(
-            read_usb_data0(buffer + *bytes_read, buffer_size - *bytes_read,
-                           &chunk_read),
-            TAG, "Failed to read CH376 data");
-        *bytes_read += chunk_read;
-        if (chunk_read == 0) {
-            return ESP_OK;
-        }
-
-        ESP_RETURN_ON_ERROR(continue_byte_read(&status), TAG,
-                            "Failed to continue CH376 byte read");
-        if (status == CH376_STATUS_USB_INT_SUCCESS) {
-            return ESP_OK;
-        }
-        if (status != CH376_STATUS_USB_INT_DISK_READ) {
-            ESP_LOGE(TAG, "BYTE_RD_GO failed, CH376 status=0x%02X", status);
-            return ESP_FAIL;
-        }
+    uint8_t status = 0;
+    ESP_RETURN_ON_ERROR(wait_status(&status), TAG, "BYTE_READ wait failed");
+    if (status == CH376_STATUS_USB_INT_SUCCESS) {
+        return ESP_OK;
     }
-    return ESP_OK;
+    if (status != CH376_STATUS_USB_INT_DISK_READ) {
+        ESP_LOGE(TAG, "BYTE_READ failed, CH376 status=0x%02X", status);
+        return ESP_FAIL;
+    }
+
+    return read_usb_data0(buffer, request, bytes_read);
 }
 
 void bsp_ch376_file_close(void)
