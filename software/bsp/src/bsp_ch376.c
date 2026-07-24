@@ -34,11 +34,14 @@ enum {
     CH376_RET_SUCCESS = 0x51,
     CH376_STATUS_USB_INT_SUCCESS = 0x14,
     CH376_STATUS_USB_INT_CONNECT = 0x15,
+    CH376_STATUS_USB_INT_DISCONNECT = 0x16,
     CH376_STATUS_USB_INT_USB_READY = 0x18,
     CH376_STATUS_USB_INT_DISK_READ = 0x1D,
     CH376_STATUS_GET_STATUS_ECHO = 0x22,
     CH376_STATUS_ERR_OPEN_DIR = 0x41,
     CH376_CHECK_EXIST_ATTEMPTS = 2,
+    CH376_FILE_OPEN_ATTEMPTS = 3,
+    CH376_FILE_OPEN_RETRY_DELAY_MS = 250,
     CH376_MOUNT_ATTEMPTS = 5,
     CH376_RESET_DELAY_MS = 80,
     CH376_SINGLE_PACKET_READ = 64,
@@ -377,33 +380,50 @@ esp_err_t bsp_ch376_file_open(const char *path)
                         "File path is NULL");
     ESP_RETURN_ON_ERROR(bsp_ch376_init(), TAG, "CH376 init failed");
 
-    ESP_RETURN_ON_ERROR(begin_command(), TAG, "Failed to start SET_FILE_NAME");
-    esp_err_t result = transfer_byte(CH376_CMD_SET_FILE_NAME, NULL);
-    for (size_t i = 0; result == ESP_OK && path[i] != '\0'; ++i) {
-        esp_rom_delay_us(CH376_TSC_DELAY_US);
-        result = transfer_byte((uint8_t)path[i], NULL);
-    }
-    if (result == ESP_OK) {
-        esp_rom_delay_us(CH376_TSC_DELAY_US);
-        result = transfer_byte(0x00, NULL);
-    }
-    end_command();
-    ESP_RETURN_ON_ERROR(result, TAG, "SET_FILE_NAME transfer failed");
+    uint8_t last_status = 0;
+    for (int attempt = 1; attempt <= CH376_FILE_OPEN_ATTEMPTS; ++attempt) {
+        ESP_RETURN_ON_ERROR(begin_command(), TAG, "Failed to start SET_FILE_NAME");
+        esp_err_t result = transfer_byte(CH376_CMD_SET_FILE_NAME, NULL);
+        for (size_t i = 0; result == ESP_OK && path[i] != '\0'; ++i) {
+            esp_rom_delay_us(CH376_TSC_DELAY_US);
+            result = transfer_byte((uint8_t)path[i], NULL);
+        }
+        if (result == ESP_OK) {
+            esp_rom_delay_us(CH376_TSC_DELAY_US);
+            result = transfer_byte(0x00, NULL);
+        }
+        end_command();
+        ESP_RETURN_ON_ERROR(result, TAG, "SET_FILE_NAME transfer failed");
 
-    const uint8_t file_open = CH376_CMD_FILE_OPEN;
-    ESP_RETURN_ON_ERROR(command_write_bytes(&file_open, 1), TAG,
-                        "FILE_OPEN transfer failed");
+        const uint8_t file_open = CH376_CMD_FILE_OPEN;
+        ESP_RETURN_ON_ERROR(command_write_bytes(&file_open, 1), TAG,
+                            "FILE_OPEN transfer failed");
 
-    uint8_t status = 0;
-    ESP_RETURN_ON_ERROR(wait_status(&status), TAG, "FILE_OPEN wait failed");
-    if (status != CH376_STATUS_USB_INT_SUCCESS) {
+        uint8_t status = 0;
+        ESP_RETURN_ON_ERROR(wait_status(&status), TAG, "FILE_OPEN wait failed");
+        last_status = status;
+        if (status == CH376_STATUS_USB_INT_SUCCESS) {
+            ESP_LOGI(TAG, "USB file opened: %s", path);
+            return ESP_OK;
+        }
+
         ESP_LOGE(TAG, "FILE_OPEN failed for %s, CH376 status=0x%02X", path,
                  status);
-        return status == CH376_STATUS_ERR_OPEN_DIR ? ESP_ERR_NOT_FOUND : ESP_FAIL;
+        if (status == CH376_STATUS_ERR_OPEN_DIR) {
+            return ESP_ERR_NOT_FOUND;
+        }
+        if (status == CH376_STATUS_USB_INT_DISCONNECT &&
+            attempt < CH376_FILE_OPEN_ATTEMPTS) {
+            ESP_LOGW(TAG, "FILE_OPEN retry after transient USB disconnect");
+            vTaskDelay(pdMS_TO_TICKS(CH376_FILE_OPEN_RETRY_DELAY_MS));
+            continue;
+        }
+        break;
     }
 
-    ESP_LOGI(TAG, "USB file opened: %s", path);
-    return ESP_OK;
+    ESP_LOGE(TAG, "FILE_OPEN failed after retries, last CH376 status=0x%02X",
+             last_status);
+    return ESP_FAIL;
 }
 
 static esp_err_t read_usb_data0(uint8_t *buffer, size_t buffer_size,

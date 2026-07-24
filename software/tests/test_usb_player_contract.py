@@ -34,12 +34,20 @@ class UsbPlayerContractTest(unittest.TestCase):
     def test_ch376_mount_waits_for_usb_connection_and_retries(self):
         source = CH376_SOURCE.read_text(encoding="utf-8")
         self.assertIn("CH376_STATUS_USB_INT_CONNECT = 0x15", source)
+        self.assertIn("CH376_STATUS_USB_INT_DISCONNECT = 0x16", source)
         self.assertIn("CH376_STATUS_USB_INT_USB_READY = 0x18", source)
         self.assertIn("CH376_MOUNT_ATTEMPTS", source)
         self.assertIn("DISK_CONNECT", source)
         self.assertIn("DISK_MOUNT attempt", source)
         self.assertIn("CH376_STATUS_GET_STATUS_ECHO = 0x22", source)
         self.assertIn("*status != CH376_STATUS_GET_STATUS_ECHO", source)
+
+    def test_ch376_file_open_retries_when_usb_is_temporarily_not_ready(self):
+        source = CH376_SOURCE.read_text(encoding="utf-8")
+        self.assertIn("CH376_FILE_OPEN_ATTEMPTS", source)
+        self.assertIn("FILE_OPEN retry", source)
+        self.assertIn("status == CH376_STATUS_USB_INT_DISCONNECT", source)
+        self.assertIn("vTaskDelay(pdMS_TO_TICKS(CH376_FILE_OPEN_RETRY_DELAY_MS))", source)
 
     def test_ch376_byte_read_returns_single_data_packet(self):
         source = CH376_SOURCE.read_text(encoding="utf-8")
@@ -59,6 +67,8 @@ class UsbPlayerContractTest(unittest.TestCase):
         self.assertIn("bsp_speaker_set_sample_rate", source)
         self.assertIn("bsp_speaker_write", source)
         self.assertIn("xTaskCreate", source)
+        self.assertIn("Check that /MUSIC.WAV exists", source)
+        self.assertNotIn("Put a PCM 16-bit WAV file at %s", source)
 
     def test_usb_player_logs_wav_format_and_accepts_extensible_pcm(self):
         source = USB_SOURCE.read_text(encoding="utf-8")

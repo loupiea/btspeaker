@@ -269,7 +269,7 @@ static esp_err_t play_music_file(void)
 
     esp_err_t result = bsp_ch376_file_open(USB_MUSIC_FILE);
     if (result != ESP_OK) {
-        ESP_LOGE(TAG, "Put a PCM 16-bit WAV file at %s", USB_MUSIC_FILE);
+        ESP_LOGE(TAG, "Check that /MUSIC.WAV exists on the USB disk root");
         return result;
     }
 
