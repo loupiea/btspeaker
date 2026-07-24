@@ -53,6 +53,14 @@ class UsbPlayerContractTest(unittest.TestCase):
         self.assertIn("bsp_speaker_write", source)
         self.assertIn("xTaskCreate", source)
 
+    def test_usb_player_logs_wav_format_and_accepts_extensible_pcm(self):
+        source = USB_SOURCE.read_text(encoding="utf-8")
+        self.assertIn("WAV_FORMAT_EXTENSIBLE = 0xFFFE", source)
+        self.assertIn("WAV_SUBFORMAT_PCM", source)
+        self.assertIn("audio_format == WAV_FORMAT_EXTENSIBLE", source)
+        self.assertIn("WAV fmt: format=0x%04X", source)
+        self.assertIn("WAV format unsupported", source)
+
     def test_component_compiles_usb_player(self):
         text = COMPONENT_CMAKE.read_text(encoding="utf-8")
         self.assertIn('"src/bsp_usb_player.c"', text)

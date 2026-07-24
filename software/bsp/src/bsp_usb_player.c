@@ -23,10 +23,21 @@ enum {
     WAV_HEADER_PREFIX_SIZE = 12,
     WAV_CHUNK_HEADER_SIZE = 8,
     WAV_FORMAT_PCM = 1,
+    WAV_FORMAT_EXTENSIBLE = 0xFFFE,
     WAV_BITS_PER_SAMPLE = 16,
+    WAV_EXTENSIBLE_EXTRA_SIZE = 24,
+    WAV_EXTENSIBLE_SUBFORMAT_OFFSET = 8,
 };
 
 static const char USB_MUSIC_FILE[] = "/MUSIC.WAV";
+static const uint8_t WAV_SUBFORMAT_PCM[16] = {
+    0x01, 0x00, 0x00, 0x00,
+    0x00, 0x00,
+    0x10, 0x00,
+    0x80, 0x00,
+    0x00, 0xAA,
+    0x00, 0x38, 0x9B, 0x71,
+};
 
 typedef struct {
     uint16_t channels;
@@ -116,9 +127,32 @@ static esp_err_t parse_wav_header(wav_info_t *info)
             info->sample_rate_hz = read_le32(fmt + 4);
             info->bits_per_sample = read_le16(fmt + 14);
 
-            ESP_RETURN_ON_FALSE(audio_format == WAV_FORMAT_PCM,
-                                ESP_ERR_NOT_SUPPORTED, TAG,
-                                "Only PCM WAV is supported");
+            uint8_t extensible_extra[WAV_EXTENSIBLE_EXTRA_SIZE] = {0};
+            uint32_t extra_bytes = chunk_size - sizeof(fmt);
+            const uint32_t extensible_bytes =
+                extra_bytes > sizeof(extensible_extra)
+                    ? sizeof(extensible_extra)
+                    : extra_bytes;
+            if (extensible_bytes > 0) {
+                ESP_RETURN_ON_ERROR(read_exact(extensible_extra, extensible_bytes),
+                                    TAG, "Failed to read WAV fmt extension");
+                extra_bytes -= extensible_bytes;
+            }
+
+            const bool is_extensible_pcm =
+                audio_format == WAV_FORMAT_EXTENSIBLE &&
+                extensible_bytes >= WAV_EXTENSIBLE_EXTRA_SIZE &&
+                memcmp(extensible_extra + WAV_EXTENSIBLE_SUBFORMAT_OFFSET,
+                       WAV_SUBFORMAT_PCM, sizeof(WAV_SUBFORMAT_PCM)) == 0;
+            ESP_LOGI(TAG, "WAV fmt: format=0x%04X, channels=%u, sample_rate=%" PRIu32
+                          ", bits=%u",
+                     audio_format, info->channels, info->sample_rate_hz,
+                     info->bits_per_sample);
+
+            if (audio_format != WAV_FORMAT_PCM && !is_extensible_pcm) {
+                ESP_LOGE(TAG, "WAV format unsupported: format=0x%04X", audio_format);
+                return ESP_ERR_NOT_SUPPORTED;
+            }
             ESP_RETURN_ON_FALSE(info->channels == 1 || info->channels == 2,
                                 ESP_ERR_NOT_SUPPORTED, TAG,
                                 "Only mono/stereo WAV is supported");
@@ -126,8 +160,8 @@ static esp_err_t parse_wav_header(wav_info_t *info)
                                 ESP_ERR_NOT_SUPPORTED, TAG,
                                 "Only 16-bit WAV is supported");
 
-            if (chunk_size > sizeof(fmt)) {
-                ESP_RETURN_ON_ERROR(skip_bytes(chunk_size - sizeof(fmt)), TAG,
+            if (extra_bytes > 0) {
+                ESP_RETURN_ON_ERROR(skip_bytes(extra_bytes), TAG,
                                     "Failed to skip extra fmt bytes");
             }
             have_fmt = true;
