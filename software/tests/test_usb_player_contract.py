@@ -77,6 +77,12 @@ class UsbPlayerContractTest(unittest.TestCase):
         self.assertIn("write_wav_float32", source)
         self.assertIn("float_to_i16", source)
 
+    def test_usb_player_periodically_yields_during_streaming(self):
+        source = USB_SOURCE.read_text(encoding="utf-8")
+        self.assertIn("USB_PLAYER_YIELD_BLOCKS", source)
+        self.assertIn("playback_blocks", source)
+        self.assertIn("vTaskDelay(pdMS_TO_TICKS(1))", source)
+
     def test_component_compiles_usb_player(self):
         text = COMPONENT_CMAKE.read_text(encoding="utf-8")
         self.assertIn('"src/bsp_usb_player.c"', text)

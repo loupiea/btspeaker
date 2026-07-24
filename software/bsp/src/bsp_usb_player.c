@@ -20,6 +20,7 @@ enum {
     USB_PLAYER_STACK_SIZE = 4096,
     USB_PLAYER_TASK_PRIORITY = 5,
     USB_PLAYER_READ_BUFFER_SIZE = 512,
+    USB_PLAYER_YIELD_BLOCKS = 16,
     WAV_HEADER_PREFIX_SIZE = 12,
     WAV_CHUNK_HEADER_SIZE = 8,
     WAV_FORMAT_PCM = 1,
@@ -284,6 +285,7 @@ static esp_err_t play_music_file(void)
 
     uint8_t buffer[USB_PLAYER_READ_BUFFER_SIZE];
     uint32_t remaining = wav.data_bytes;
+    uint32_t playback_blocks = 0;
     while (result == ESP_OK && remaining > 0 && !s_stop_requested) {
         size_t bytes_read = 0;
         const size_t request = remaining > sizeof(buffer) ? sizeof(buffer) : remaining;
@@ -300,6 +302,10 @@ static esp_err_t play_music_file(void)
             result = write_wav_pcm(buffer, aligned_bytes, wav.channels);
         }
         remaining -= bytes_read;
+        ++playback_blocks;
+        if ((playback_blocks % USB_PLAYER_YIELD_BLOCKS) == 0) {
+            vTaskDelay(pdMS_TO_TICKS(1));
+        }
     }
 
     bsp_ch376_file_close();

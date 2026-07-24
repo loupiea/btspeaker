@@ -38,6 +38,7 @@ enum {
     CH376_STATUS_USB_INT_DISK_READ = 0x1D,
     CH376_STATUS_GET_STATUS_ECHO = 0x22,
     CH376_STATUS_ERR_OPEN_DIR = 0x41,
+    CH376_CHECK_EXIST_ATTEMPTS = 2,
     CH376_MOUNT_ATTEMPTS = 5,
     CH376_RESET_DELAY_MS = 80,
     CH376_SINGLE_PACKET_READ = 64,
@@ -264,12 +265,8 @@ void bsp_ch376_deinit(void)
     }
 }
 
-esp_err_t bsp_ch376_check_exist(uint8_t challenge, uint8_t *response)
+static esp_err_t check_exist_once(uint8_t challenge, uint8_t *response)
 {
-    ESP_RETURN_ON_FALSE(response != NULL, ESP_ERR_INVALID_ARG, TAG,
-                        "Response pointer is NULL");
-    *response = 0;
-
     ESP_RETURN_ON_ERROR(begin_command(), TAG, "Failed to start CHECK_EXIST");
 
     esp_err_t result = transfer_byte(CH376_CMD_CHECK_EXIST, NULL);
@@ -284,17 +281,37 @@ esp_err_t bsp_ch376_check_exist(uint8_t challenge, uint8_t *response)
     end_command();
 
     ESP_RETURN_ON_ERROR(result, TAG, "CHECK_EXIST SPI transfer failed");
+    return ESP_OK;
+}
+
+esp_err_t bsp_ch376_check_exist(uint8_t challenge, uint8_t *response)
+{
+    ESP_RETURN_ON_FALSE(response != NULL, ESP_ERR_INVALID_ARG, TAG,
+                        "Response pointer is NULL");
+    *response = 0;
 
     const uint8_t expected = (uint8_t)~challenge;
-    if (*response != expected) {
-        ESP_LOGE(TAG, "CH376S CHECK_EXIST mismatch: 0x%02X -> 0x%02X, expected 0x%02X",
+
+    for (int attempt = 1; attempt <= CH376_CHECK_EXIST_ATTEMPTS; ++attempt) {
+        ESP_RETURN_ON_ERROR(check_exist_once(challenge, response), TAG,
+                            "CHECK_EXIST transfer failed");
+        if (*response == expected) {
+            ESP_LOGI(TAG, "CH376S SPI communication OK: 0x%02X -> 0x%02X",
+                     challenge, *response);
+            return ESP_OK;
+        }
+
+        ESP_LOGE(TAG,
+                 "CH376S CHECK_EXIST mismatch: 0x%02X -> 0x%02X, expected 0x%02X",
                  challenge, *response, expected);
-        return ESP_ERR_INVALID_RESPONSE;
+        if (attempt < CH376_CHECK_EXIST_ATTEMPTS) {
+            ESP_LOGW(TAG, "CHECK_EXIST retry after CH376S reset");
+            ESP_RETURN_ON_ERROR(reset_chip(), TAG,
+                                "CH376 reset before CHECK_EXIST retry failed");
+        }
     }
 
-    ESP_LOGI(TAG, "CH376S SPI communication OK: 0x%02X -> 0x%02X",
-             challenge, *response);
-    return ESP_OK;
+    return ESP_ERR_INVALID_RESPONSE;
 }
 
 esp_err_t bsp_ch376_get_version(uint8_t *version)

@@ -33,6 +33,13 @@ class Ch376ContractTest(unittest.TestCase):
         self.assertIn("gpio_set_level(BSP_CH376S_CS_GPIO, 0)", text)
         self.assertIn("gpio_set_level(BSP_CH376S_CS_GPIO, 1)", text)
 
+    def test_check_exist_resets_and_retries_after_mismatch(self):
+        text = SOURCE.read_text(encoding="utf-8")
+        self.assertIn("CH376_CHECK_EXIST_ATTEMPTS", text)
+        self.assertIn("reset_chip()", text)
+        self.assertIn("CHECK_EXIST mismatch", text)
+        self.assertIn("CHECK_EXIST retry", text)
+
     def test_component_compiles_driver(self):
         text = COMPONENT_CMAKE.read_text(encoding="utf-8")
         self.assertIn('"src/bsp_ch376.c"', text)
