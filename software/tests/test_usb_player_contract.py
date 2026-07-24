@@ -41,6 +41,13 @@ class UsbPlayerContractTest(unittest.TestCase):
         self.assertIn("CH376_STATUS_GET_STATUS_ECHO = 0x22", source)
         self.assertIn("*status != CH376_STATUS_GET_STATUS_ECHO", source)
 
+    def test_ch376_byte_read_waits_after_byte_rd_go(self):
+        source = CH376_SOURCE.read_text(encoding="utf-8")
+        self.assertIn("continue_byte_read", source)
+        self.assertIn("BYTE_RD_GO wait failed", source)
+        self.assertIn("*bytes_read < buffer_size", source)
+        self.assertIn("status != CH376_STATUS_USB_INT_DISK_READ", source)
+
     def test_usb_player_api_and_wav_contract(self):
         header = USB_HEADER.read_text(encoding="utf-8")
         source = USB_SOURCE.read_text(encoding="utf-8")
