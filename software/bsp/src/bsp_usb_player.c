@@ -23,8 +23,10 @@ enum {
     WAV_HEADER_PREFIX_SIZE = 12,
     WAV_CHUNK_HEADER_SIZE = 8,
     WAV_FORMAT_PCM = 1,
+    WAV_FORMAT_IEEE_FLOAT = 3,
     WAV_FORMAT_EXTENSIBLE = 0xFFFE,
     WAV_BITS_PER_SAMPLE = 16,
+    WAV_FLOAT_BITS_PER_SAMPLE = 32,
     WAV_EXTENSIBLE_EXTRA_SIZE = 24,
     WAV_EXTENSIBLE_SUBFORMAT_OFFSET = 8,
 };
@@ -39,11 +41,17 @@ static const uint8_t WAV_SUBFORMAT_PCM[16] = {
     0x00, 0x38, 0x9B, 0x71,
 };
 
+typedef enum {
+    WAV_SAMPLE_FORMAT_PCM16,
+    WAV_SAMPLE_FORMAT_FLOAT32,
+} wav_sample_format_t;
+
 typedef struct {
     uint16_t channels;
     uint32_t sample_rate_hz;
     uint16_t bits_per_sample;
     uint32_t data_bytes;
+    wav_sample_format_t sample_format;
 } wav_info_t;
 
 static TaskHandle_t s_usb_player_task;
@@ -144,21 +152,30 @@ static esp_err_t parse_wav_header(wav_info_t *info)
                 extensible_bytes >= WAV_EXTENSIBLE_EXTRA_SIZE &&
                 memcmp(extensible_extra + WAV_EXTENSIBLE_SUBFORMAT_OFFSET,
                        WAV_SUBFORMAT_PCM, sizeof(WAV_SUBFORMAT_PCM)) == 0;
+            const bool is_float32 =
+                audio_format == WAV_FORMAT_IEEE_FLOAT &&
+                info->bits_per_sample == WAV_FLOAT_BITS_PER_SAMPLE;
             ESP_LOGI(TAG, "WAV fmt: format=0x%04X, channels=%u, sample_rate=%" PRIu32
                           ", bits=%u",
                      audio_format, info->channels, info->sample_rate_hz,
                      info->bits_per_sample);
 
-            if (audio_format != WAV_FORMAT_PCM && !is_extensible_pcm) {
+            if (audio_format != WAV_FORMAT_PCM && !is_extensible_pcm &&
+                !is_float32) {
                 ESP_LOGE(TAG, "WAV format unsupported: format=0x%04X", audio_format);
                 return ESP_ERR_NOT_SUPPORTED;
             }
             ESP_RETURN_ON_FALSE(info->channels == 1 || info->channels == 2,
                                 ESP_ERR_NOT_SUPPORTED, TAG,
                                 "Only mono/stereo WAV is supported");
-            ESP_RETURN_ON_FALSE(info->bits_per_sample == WAV_BITS_PER_SAMPLE,
-                                ESP_ERR_NOT_SUPPORTED, TAG,
-                                "Only 16-bit WAV is supported");
+            if (is_float32) {
+                info->sample_format = WAV_SAMPLE_FORMAT_FLOAT32;
+            } else {
+                ESP_RETURN_ON_FALSE(info->bits_per_sample == WAV_BITS_PER_SAMPLE,
+                                    ESP_ERR_NOT_SUPPORTED, TAG,
+                                    "Only 16-bit PCM WAV is supported");
+                info->sample_format = WAV_SAMPLE_FORMAT_PCM16;
+            }
 
             if (extra_bytes > 0) {
                 ESP_RETURN_ON_ERROR(skip_bytes(extra_bytes), TAG,
@@ -206,6 +223,44 @@ static esp_err_t write_wav_pcm(const uint8_t *buffer, size_t bytes,
     return bsp_speaker_write(stereo, mono_samples * 2U, USB_PLAYER_VOLUME);
 }
 
+static int16_t float_to_i16(float sample)
+{
+    if (sample > 1.0f) {
+        sample = 1.0f;
+    } else if (sample < -1.0f) {
+        sample = -1.0f;
+    }
+    return (int16_t)(sample * 32767.0f);
+}
+
+static float read_le_float32(const uint8_t *data)
+{
+    uint32_t raw = read_le32(data);
+    float value = 0.0f;
+    memcpy(&value, &raw, sizeof(value));
+    return value;
+}
+
+static esp_err_t write_wav_float32(const uint8_t *buffer, size_t bytes,
+                                   uint16_t channels)
+{
+    ESP_RETURN_ON_FALSE((bytes % sizeof(float)) == 0, ESP_ERR_INVALID_SIZE,
+                        TAG, "Float PCM data is not 32-bit aligned");
+
+    int16_t samples[USB_PLAYER_READ_BUFFER_SIZE / sizeof(float) * 2U];
+    const size_t float_samples = bytes / sizeof(float);
+    size_t output_samples = 0;
+    for (size_t i = 0; i < float_samples; ++i) {
+        const int16_t sample = float_to_i16(read_le_float32(buffer + i * sizeof(float)));
+        samples[output_samples++] = sample;
+        if (channels == 1) {
+            samples[output_samples++] = sample;
+        }
+    }
+
+    return bsp_speaker_write(samples, output_samples, USB_PLAYER_VOLUME);
+}
+
 static esp_err_t play_music_file(void)
 {
     ESP_RETURN_ON_ERROR(bsp_ch376_usb_disk_mount(), TAG,
@@ -237,8 +292,13 @@ static esp_err_t play_music_file(void)
             break;
         }
 
-        const size_t aligned_bytes = bytes_read & ~(sizeof(int16_t) - 1U);
-        result = write_wav_pcm(buffer, aligned_bytes, wav.channels);
+        if (wav.sample_format == WAV_SAMPLE_FORMAT_FLOAT32) {
+            const size_t aligned_bytes = bytes_read & ~(sizeof(float) - 1U);
+            result = write_wav_float32(buffer, aligned_bytes, wav.channels);
+        } else {
+            const size_t aligned_bytes = bytes_read & ~(sizeof(int16_t) - 1U);
+            result = write_wav_pcm(buffer, aligned_bytes, wav.channels);
+        }
         remaining -= bytes_read;
     }
 

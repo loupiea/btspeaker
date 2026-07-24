@@ -61,6 +61,15 @@ class UsbPlayerContractTest(unittest.TestCase):
         self.assertIn("WAV fmt: format=0x%04X", source)
         self.assertIn("WAV format unsupported", source)
 
+    def test_usb_player_accepts_32bit_float_wav(self):
+        source = USB_SOURCE.read_text(encoding="utf-8")
+        self.assertIn("WAV_FORMAT_IEEE_FLOAT = 3", source)
+        self.assertIn("WAV_FLOAT_BITS_PER_SAMPLE = 32", source)
+        self.assertIn("wav_sample_format_t", source)
+        self.assertIn("WAV_SAMPLE_FORMAT_FLOAT32", source)
+        self.assertIn("write_wav_float32", source)
+        self.assertIn("float_to_i16", source)
+
     def test_component_compiles_usb_player(self):
         text = COMPONENT_CMAKE.read_text(encoding="utf-8")
         self.assertIn('"src/bsp_usb_player.c"', text)
