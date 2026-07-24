@@ -42,6 +42,15 @@ class UsbPlayerContractTest(unittest.TestCase):
         self.assertIn("CH376_STATUS_GET_STATUS_ECHO = 0x22", source)
         self.assertIn("*status != CH376_STATUS_GET_STATUS_ECHO", source)
 
+    def test_ch376_retries_set_usb_mode_when_chip_is_not_ready(self):
+        source = CH376_SOURCE.read_text(encoding="utf-8")
+        self.assertIn("CH376_RESPONSE_IDLE = 0xFF", source)
+        self.assertIn("CH376_SET_USB_MODE_ATTEMPTS", source)
+        self.assertIn("CH376_SET_USB_MODE_RETRY_DELAY_MS", source)
+        self.assertIn("set_usb_host_mode", source)
+        self.assertIn("SET_USB_MODE attempt", source)
+        self.assertIn("response == CH376_RESPONSE_IDLE", source)
+
     def test_ch376_file_open_retries_when_usb_is_temporarily_not_ready(self):
         source = CH376_SOURCE.read_text(encoding="utf-8")
         self.assertIn("CH376_FILE_OPEN_ATTEMPTS", source)

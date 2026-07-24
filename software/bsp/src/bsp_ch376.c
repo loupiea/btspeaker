@@ -32,6 +32,7 @@ enum {
     CH376_USB_MODE_HOST = 0x06,
     CH376_CLOSE_UPDATE_LENGTH = 0x00,
     CH376_RET_SUCCESS = 0x51,
+    CH376_RESPONSE_IDLE = 0xFF,
     CH376_STATUS_USB_INT_SUCCESS = 0x14,
     CH376_STATUS_USB_INT_CONNECT = 0x15,
     CH376_STATUS_USB_INT_DISCONNECT = 0x16,
@@ -40,10 +41,12 @@ enum {
     CH376_STATUS_GET_STATUS_ECHO = 0x22,
     CH376_STATUS_ERR_OPEN_DIR = 0x41,
     CH376_CHECK_EXIST_ATTEMPTS = 2,
+    CH376_SET_USB_MODE_ATTEMPTS = 3,
+    CH376_SET_USB_MODE_RETRY_DELAY_MS = 120,
     CH376_FILE_OPEN_ATTEMPTS = 3,
     CH376_FILE_OPEN_RETRY_DELAY_MS = 250,
     CH376_MOUNT_ATTEMPTS = 5,
-    CH376_RESET_DELAY_MS = 80,
+    CH376_RESET_DELAY_MS = 150,
     CH376_SINGLE_PACKET_READ = 64,
     CH376_MAX_FILE_READ_CHUNK = 255,
     CH376_COMMAND_TIMEOUT_MS = 2000,
@@ -148,6 +151,51 @@ static esp_err_t reset_chip(void)
     vTaskDelay(pdMS_TO_TICKS(CH376_RESET_DELAY_MS));
     ESP_LOGI(TAG, "CH376S reset finished");
     return ESP_OK;
+}
+
+static esp_err_t set_usb_host_mode(void)
+{
+    uint8_t last_response = 0;
+
+    for (int attempt = 1; attempt <= CH376_SET_USB_MODE_ATTEMPTS; ++attempt) {
+        const uint8_t set_usb_mode[] = {
+            CH376_CMD_SET_USB_MODE,
+            CH376_USB_MODE_HOST,
+        };
+
+        ESP_RETURN_ON_ERROR(begin_command(), TAG, "Failed to start SET_USB_MODE");
+        esp_err_t result = transfer_byte(set_usb_mode[0], NULL);
+        if (result == ESP_OK) {
+            esp_rom_delay_us(CH376_TSC_DELAY_US);
+            result = transfer_byte(set_usb_mode[1], NULL);
+        }
+        uint8_t response = 0;
+        if (result == ESP_OK) {
+            vTaskDelay(pdMS_TO_TICKS(20));
+            result = transfer_byte(0xFF, &response);
+        }
+        end_command();
+
+        ESP_RETURN_ON_ERROR(result, TAG, "SET_USB_MODE transfer failed");
+        last_response = response;
+        ESP_LOGI(TAG, "SET_USB_MODE attempt %d/%d response=0x%02X", attempt,
+                 CH376_SET_USB_MODE_ATTEMPTS, response);
+        if (response == CH376_RET_SUCCESS) {
+            return ESP_OK;
+        }
+
+        if (response == CH376_RESPONSE_IDLE) {
+            ESP_LOGW(TAG, "CH376S is not ready for SET_USB_MODE yet");
+        }
+
+        if (attempt < CH376_SET_USB_MODE_ATTEMPTS) {
+            vTaskDelay(pdMS_TO_TICKS(CH376_SET_USB_MODE_RETRY_DELAY_MS));
+        }
+    }
+
+    ESP_LOGE(TAG, "SET_USB_MODE failed after retries, last response=0x%02X",
+             last_response);
+    return ESP_ERR_INVALID_RESPONSE;
 }
 
 static bool status_is_usb_ready(uint8_t status)
@@ -341,30 +389,7 @@ esp_err_t bsp_ch376_usb_disk_mount(void)
 {
     ESP_RETURN_ON_ERROR(bsp_ch376_init(), TAG, "CH376 init failed");
     ESP_RETURN_ON_ERROR(reset_chip(), TAG, "CH376 reset failed");
-
-    const uint8_t set_usb_mode[] = {
-        CH376_CMD_SET_USB_MODE,
-        CH376_USB_MODE_HOST,
-    };
-
-    ESP_RETURN_ON_ERROR(begin_command(), TAG, "Failed to start SET_USB_MODE");
-    esp_err_t result = transfer_byte(set_usb_mode[0], NULL);
-    if (result == ESP_OK) {
-        esp_rom_delay_us(CH376_TSC_DELAY_US);
-        result = transfer_byte(set_usb_mode[1], NULL);
-    }
-    uint8_t response = 0;
-    if (result == ESP_OK) {
-        vTaskDelay(pdMS_TO_TICKS(20));
-        result = transfer_byte(0xFF, &response);
-    }
-    end_command();
-
-    ESP_RETURN_ON_ERROR(result, TAG, "SET_USB_MODE transfer failed");
-    if (response != CH376_RET_SUCCESS) {
-        ESP_LOGE(TAG, "SET_USB_MODE failed: response=0x%02X", response);
-        return ESP_ERR_INVALID_RESPONSE;
-    }
+    ESP_RETURN_ON_ERROR(set_usb_host_mode(), TAG, "SET_USB_MODE failed");
 
     vTaskDelay(pdMS_TO_TICKS(200));
     ESP_RETURN_ON_ERROR(connect_usb_disk(), TAG, "DISK_CONNECT status failed");
