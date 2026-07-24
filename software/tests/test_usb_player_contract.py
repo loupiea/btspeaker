@@ -21,6 +21,7 @@ class UsbPlayerContractTest(unittest.TestCase):
 
     def test_ch376_uses_usb_host_file_commands(self):
         source = CH376_SOURCE.read_text(encoding="utf-8")
+        self.assertIn("CH376_CMD_RESET_ALL = 0x05", source)
         self.assertIn("CH376_CMD_SET_USB_MODE = 0x15", source)
         self.assertIn("CH376_CMD_DISK_CONNECT = 0x30", source)
         self.assertIn("CH376_CMD_DISK_MOUNT = 0x31", source)
@@ -37,6 +38,8 @@ class UsbPlayerContractTest(unittest.TestCase):
         self.assertIn("CH376_MOUNT_ATTEMPTS", source)
         self.assertIn("DISK_CONNECT", source)
         self.assertIn("DISK_MOUNT attempt", source)
+        self.assertIn("CH376_STATUS_GET_STATUS_ECHO = 0x22", source)
+        self.assertIn("*status != CH376_STATUS_GET_STATUS_ECHO", source)
 
     def test_usb_player_api_and_wav_contract(self):
         header = USB_HEADER.read_text(encoding="utf-8")

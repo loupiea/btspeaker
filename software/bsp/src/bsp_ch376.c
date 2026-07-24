@@ -17,6 +17,7 @@ static const char *TAG = "bsp_ch376";
 
 enum {
     CH376_CMD_GET_IC_VER = 0x01,
+    CH376_CMD_RESET_ALL = 0x05,
     CH376_CMD_CHECK_EXIST = 0x06,
     CH376_CMD_SET_USB_MODE = 0x15,
     CH376_CMD_GET_STATUS = 0x22,
@@ -35,8 +36,10 @@ enum {
     CH376_STATUS_USB_INT_CONNECT = 0x15,
     CH376_STATUS_USB_INT_USB_READY = 0x18,
     CH376_STATUS_USB_INT_DISK_READ = 0x1D,
+    CH376_STATUS_GET_STATUS_ECHO = 0x22,
     CH376_STATUS_ERR_OPEN_DIR = 0x41,
     CH376_MOUNT_ATTEMPTS = 5,
+    CH376_RESET_DELAY_MS = 80,
     CH376_MAX_FILE_READ_CHUNK = 255,
     CH376_COMMAND_TIMEOUT_MS = 2000,
     CH376_POLL_DELAY_MS = 10,
@@ -121,7 +124,8 @@ static esp_err_t wait_status(uint8_t *status)
 
     do {
         ESP_RETURN_ON_ERROR(read_status(status), TAG, "Failed to read CH376 status");
-        if (*status != 0x00 && *status != 0xFF) {
+        if (*status != 0x00 && *status != 0xFF &&
+            *status != CH376_STATUS_GET_STATUS_ECHO) {
             return ESP_OK;
         }
         vTaskDelay(pdMS_TO_TICKS(CH376_POLL_DELAY_MS));
@@ -129,6 +133,16 @@ static esp_err_t wait_status(uint8_t *status)
 
     ESP_LOGE(TAG, "Timed out waiting for CH376 status");
     return ESP_ERR_TIMEOUT;
+}
+
+static esp_err_t reset_chip(void)
+{
+    const uint8_t reset_all = CH376_CMD_RESET_ALL;
+    ESP_RETURN_ON_ERROR(command_write_bytes(&reset_all, 1), TAG,
+                        "RESET_ALL transfer failed");
+    vTaskDelay(pdMS_TO_TICKS(CH376_RESET_DELAY_MS));
+    ESP_LOGI(TAG, "CH376S reset finished");
+    return ESP_OK;
 }
 
 static bool status_is_usb_ready(uint8_t status)
@@ -305,6 +319,7 @@ esp_err_t bsp_ch376_get_version(uint8_t *version)
 esp_err_t bsp_ch376_usb_disk_mount(void)
 {
     ESP_RETURN_ON_ERROR(bsp_ch376_init(), TAG, "CH376 init failed");
+    ESP_RETURN_ON_ERROR(reset_chip(), TAG, "CH376 reset failed");
 
     const uint8_t set_usb_mode[] = {
         CH376_CMD_SET_USB_MODE,
