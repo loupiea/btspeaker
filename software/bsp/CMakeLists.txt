@@ -9,6 +9,7 @@ idf_component_register(
         "src/bsp_oled.c"
         "src/bsp_speaker.c"
         "src/bsp_sd.c"
+        "src/bsp_usb_player.c"
     INCLUDE_DIRS "include"
     REQUIRES
         esp_hw_support

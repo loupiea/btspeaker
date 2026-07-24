@@ -1,5 +1,6 @@
 #pragma once
 
+#include <stddef.h>
 #include <stdint.h>
 
 #include "esp_err.h"
@@ -16,6 +17,19 @@ esp_err_t bsp_ch376_check_exist(uint8_t challenge, uint8_t *response);
 
 /** Read the raw CH376S chip and firmware version byte. */
 esp_err_t bsp_ch376_get_version(uint8_t *version);
+
+/** Put CH376S into USB host mode and mount the inserted USB disk. */
+esp_err_t bsp_ch376_usb_disk_mount(void);
+
+/** Open a file on the mounted USB disk. Use 8.3 names such as "/MUSIC.WAV". */
+esp_err_t bsp_ch376_file_open(const char *path);
+
+/** Read file bytes. bytes_read is 0 on EOF. */
+esp_err_t bsp_ch376_file_read(uint8_t *buffer, size_t buffer_size,
+                              size_t *bytes_read);
+
+/** Close the currently opened file, if any. */
+void bsp_ch376_file_close(void);
 
 /** Release the CH376S SPI device and SPI3 bus. */
 void bsp_ch376_deinit(void);

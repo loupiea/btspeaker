@@ -2,6 +2,7 @@
 
 #include <stdbool.h>
 #include <stddef.h>
+#include <string.h>
 
 #include "bsp_pins.h"
 #include "driver/gpio.h"
@@ -10,12 +11,31 @@
 #include "esp_log.h"
 #include "esp_rom_sys.h"
 #include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 
 static const char *TAG = "bsp_ch376";
 
 enum {
     CH376_CMD_GET_IC_VER = 0x01,
     CH376_CMD_CHECK_EXIST = 0x06,
+    CH376_CMD_SET_USB_MODE = 0x15,
+    CH376_CMD_GET_STATUS = 0x22,
+    CH376_CMD_RD_USB_DATA0 = 0x27,
+    CH376_CMD_SET_FILE_NAME = 0x2F,
+    CH376_CMD_DISK_MOUNT = 0x31,
+    CH376_CMD_FILE_OPEN = 0x32,
+    CH376_CMD_FILE_CLOSE = 0x36,
+    CH376_CMD_BYTE_READ = 0x3A,
+    CH376_CMD_BYTE_RD_GO = 0x3B,
+    CH376_USB_MODE_HOST = 0x06,
+    CH376_CLOSE_UPDATE_LENGTH = 0x00,
+    CH376_RET_SUCCESS = 0x51,
+    CH376_STATUS_USB_INT_SUCCESS = 0x14,
+    CH376_STATUS_USB_INT_DISK_READ = 0x1D,
+    CH376_STATUS_ERR_OPEN_DIR = 0x41,
+    CH376_MAX_FILE_READ_CHUNK = 255,
+    CH376_COMMAND_TIMEOUT_MS = 2000,
+    CH376_POLL_DELAY_MS = 10,
     CH376_TSC_DELAY_US = 2,
 };
 
@@ -56,6 +76,66 @@ static void end_command(void)
 {
     gpio_set_level(BSP_CH376S_CS_GPIO, 1);
     spi_device_release_bus(s_spi_device);
+}
+
+static esp_err_t command_write_bytes(const uint8_t *bytes, size_t length)
+{
+    ESP_RETURN_ON_ERROR(begin_command(), TAG, "Failed to start CH376 command");
+
+    esp_err_t result = ESP_OK;
+    for (size_t i = 0; i < length && result == ESP_OK; ++i) {
+        result = transfer_byte(bytes[i], NULL);
+        esp_rom_delay_us(CH376_TSC_DELAY_US);
+    }
+
+    end_command();
+    return result;
+}
+
+static esp_err_t read_status(uint8_t *status)
+{
+    ESP_RETURN_ON_FALSE(status != NULL, ESP_ERR_INVALID_ARG, TAG,
+                        "Status pointer is NULL");
+
+    ESP_RETURN_ON_ERROR(begin_command(), TAG, "Failed to start GET_STATUS");
+    esp_err_t result = transfer_byte(CH376_CMD_GET_STATUS, NULL);
+    if (result == ESP_OK) {
+        esp_rom_delay_us(CH376_TSC_DELAY_US);
+        result = transfer_byte(0xFF, status);
+    }
+    end_command();
+    return result;
+}
+
+static esp_err_t wait_status(uint8_t *status)
+{
+    ESP_RETURN_ON_FALSE(status != NULL, ESP_ERR_INVALID_ARG, TAG,
+                        "Status pointer is NULL");
+
+    const TickType_t deadline =
+        xTaskGetTickCount() + pdMS_TO_TICKS(CH376_COMMAND_TIMEOUT_MS);
+
+    do {
+        ESP_RETURN_ON_ERROR(read_status(status), TAG, "Failed to read CH376 status");
+        if (*status != 0x00 && *status != 0xFF) {
+            return ESP_OK;
+        }
+        vTaskDelay(pdMS_TO_TICKS(CH376_POLL_DELAY_MS));
+    } while (xTaskGetTickCount() < deadline);
+
+    ESP_LOGE(TAG, "Timed out waiting for CH376 status");
+    return ESP_ERR_TIMEOUT;
+}
+
+static esp_err_t expect_success_status(const char *operation)
+{
+    uint8_t status = 0;
+    ESP_RETURN_ON_ERROR(wait_status(&status), TAG, "Failed to wait status");
+    if (status != CH376_STATUS_USB_INT_SUCCESS) {
+        ESP_LOGE(TAG, "%s failed, CH376 status=0x%02X", operation, status);
+        return ESP_FAIL;
+    }
+    return ESP_OK;
 }
 
 esp_err_t bsp_ch376_init(void)
@@ -115,6 +195,7 @@ esp_err_t bsp_ch376_init(void)
 
 void bsp_ch376_deinit(void)
 {
+    bsp_ch376_file_close();
     gpio_set_level(BSP_CH376S_CS_GPIO, 1);
 
     if (s_spi_device != NULL) {
@@ -178,4 +259,164 @@ esp_err_t bsp_ch376_get_version(uint8_t *version)
     ESP_RETURN_ON_ERROR(result, TAG, "GET_IC_VER SPI transfer failed");
     ESP_LOGI(TAG, "CH376S version raw: 0x%02X", *version);
     return ESP_OK;
+}
+
+esp_err_t bsp_ch376_usb_disk_mount(void)
+{
+    ESP_RETURN_ON_ERROR(bsp_ch376_init(), TAG, "CH376 init failed");
+
+    const uint8_t set_usb_mode[] = {
+        CH376_CMD_SET_USB_MODE,
+        CH376_USB_MODE_HOST,
+    };
+
+    ESP_RETURN_ON_ERROR(begin_command(), TAG, "Failed to start SET_USB_MODE");
+    esp_err_t result = transfer_byte(set_usb_mode[0], NULL);
+    if (result == ESP_OK) {
+        esp_rom_delay_us(CH376_TSC_DELAY_US);
+        result = transfer_byte(set_usb_mode[1], NULL);
+    }
+    uint8_t response = 0;
+    if (result == ESP_OK) {
+        vTaskDelay(pdMS_TO_TICKS(20));
+        result = transfer_byte(0xFF, &response);
+    }
+    end_command();
+
+    ESP_RETURN_ON_ERROR(result, TAG, "SET_USB_MODE transfer failed");
+    if (response != CH376_RET_SUCCESS) {
+        ESP_LOGE(TAG, "SET_USB_MODE failed: response=0x%02X", response);
+        return ESP_ERR_INVALID_RESPONSE;
+    }
+
+    const uint8_t disk_mount = CH376_CMD_DISK_MOUNT;
+    ESP_RETURN_ON_ERROR(command_write_bytes(&disk_mount, 1), TAG,
+                        "DISK_MOUNT transfer failed");
+    ESP_RETURN_ON_ERROR(expect_success_status("DISK_MOUNT"), TAG,
+                        "DISK_MOUNT status failed");
+
+    ESP_LOGI(TAG, "USB disk mounted through CH376S");
+    return ESP_OK;
+}
+
+esp_err_t bsp_ch376_file_open(const char *path)
+{
+    ESP_RETURN_ON_FALSE(path != NULL, ESP_ERR_INVALID_ARG, TAG,
+                        "File path is NULL");
+    ESP_RETURN_ON_ERROR(bsp_ch376_init(), TAG, "CH376 init failed");
+
+    ESP_RETURN_ON_ERROR(begin_command(), TAG, "Failed to start SET_FILE_NAME");
+    esp_err_t result = transfer_byte(CH376_CMD_SET_FILE_NAME, NULL);
+    for (size_t i = 0; result == ESP_OK && path[i] != '\0'; ++i) {
+        esp_rom_delay_us(CH376_TSC_DELAY_US);
+        result = transfer_byte((uint8_t)path[i], NULL);
+    }
+    if (result == ESP_OK) {
+        esp_rom_delay_us(CH376_TSC_DELAY_US);
+        result = transfer_byte(0x00, NULL);
+    }
+    end_command();
+    ESP_RETURN_ON_ERROR(result, TAG, "SET_FILE_NAME transfer failed");
+
+    const uint8_t file_open = CH376_CMD_FILE_OPEN;
+    ESP_RETURN_ON_ERROR(command_write_bytes(&file_open, 1), TAG,
+                        "FILE_OPEN transfer failed");
+
+    uint8_t status = 0;
+    ESP_RETURN_ON_ERROR(wait_status(&status), TAG, "FILE_OPEN wait failed");
+    if (status != CH376_STATUS_USB_INT_SUCCESS) {
+        ESP_LOGE(TAG, "FILE_OPEN failed for %s, CH376 status=0x%02X", path,
+                 status);
+        return status == CH376_STATUS_ERR_OPEN_DIR ? ESP_ERR_NOT_FOUND : ESP_FAIL;
+    }
+
+    ESP_LOGI(TAG, "USB file opened: %s", path);
+    return ESP_OK;
+}
+
+static esp_err_t read_usb_data0(uint8_t *buffer, size_t buffer_size,
+                                size_t *bytes_read)
+{
+    ESP_RETURN_ON_FALSE(buffer != NULL, ESP_ERR_INVALID_ARG, TAG,
+                        "Read buffer is NULL");
+    ESP_RETURN_ON_FALSE(bytes_read != NULL, ESP_ERR_INVALID_ARG, TAG,
+                        "bytes_read is NULL");
+    *bytes_read = 0;
+
+    ESP_RETURN_ON_ERROR(begin_command(), TAG, "Failed to start RD_USB_DATA0");
+    esp_err_t result = transfer_byte(CH376_CMD_RD_USB_DATA0, NULL);
+
+    uint8_t available = 0;
+    if (result == ESP_OK) {
+        esp_rom_delay_us(CH376_TSC_DELAY_US);
+        result = transfer_byte(0xFF, &available);
+    }
+
+    const size_t to_read = available > buffer_size ? buffer_size : available;
+    for (size_t i = 0; result == ESP_OK && i < to_read; ++i) {
+        esp_rom_delay_us(CH376_TSC_DELAY_US);
+        result = transfer_byte(0xFF, &buffer[i]);
+    }
+    end_command();
+
+    ESP_RETURN_ON_ERROR(result, TAG, "RD_USB_DATA0 transfer failed");
+    *bytes_read = to_read;
+    return ESP_OK;
+}
+
+esp_err_t bsp_ch376_file_read(uint8_t *buffer, size_t buffer_size,
+                              size_t *bytes_read)
+{
+    ESP_RETURN_ON_FALSE(buffer != NULL, ESP_ERR_INVALID_ARG, TAG,
+                        "Read buffer is NULL");
+    ESP_RETURN_ON_FALSE(bytes_read != NULL, ESP_ERR_INVALID_ARG, TAG,
+                        "bytes_read is NULL");
+    *bytes_read = 0;
+    if (buffer_size == 0) {
+        return ESP_OK;
+    }
+
+    const uint16_t request =
+        (uint16_t)(buffer_size > CH376_MAX_FILE_READ_CHUNK
+                       ? CH376_MAX_FILE_READ_CHUNK
+                       : buffer_size);
+    const uint8_t byte_read[] = {
+        CH376_CMD_BYTE_READ,
+        (uint8_t)(request & 0xFFU),
+        (uint8_t)(request >> 8U),
+    };
+    ESP_RETURN_ON_ERROR(command_write_bytes(byte_read, sizeof(byte_read)), TAG,
+                        "BYTE_READ transfer failed");
+
+    uint8_t status = 0;
+    ESP_RETURN_ON_ERROR(wait_status(&status), TAG, "BYTE_READ wait failed");
+    if (status == CH376_STATUS_USB_INT_SUCCESS) {
+        *bytes_read = 0;
+        return ESP_OK;
+    }
+    if (status != CH376_STATUS_USB_INT_DISK_READ) {
+        ESP_LOGE(TAG, "BYTE_READ failed, CH376 status=0x%02X", status);
+        return ESP_FAIL;
+    }
+
+    ESP_RETURN_ON_ERROR(read_usb_data0(buffer, buffer_size, bytes_read), TAG,
+                        "Failed to read CH376 data");
+
+    const uint8_t byte_rd_go = CH376_CMD_BYTE_RD_GO;
+    ESP_RETURN_ON_ERROR(command_write_bytes(&byte_rd_go, 1), TAG,
+                        "BYTE_RD_GO transfer failed");
+    return ESP_OK;
+}
+
+void bsp_ch376_file_close(void)
+{
+    if (s_spi_device == NULL) {
+        return;
+    }
+
+    const uint8_t file_close[] = {
+        CH376_CMD_FILE_CLOSE,
+        CH376_CLOSE_UPDATE_LENGTH,
+    };
+    (void)command_write_bytes(file_close, sizeof(file_close));
 }

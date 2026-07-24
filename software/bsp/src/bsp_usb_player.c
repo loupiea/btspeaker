@@ -1,0 +1,256 @@
+#include "bsp_usb_player.h"
+
+#include <stdbool.h>
+#include <inttypes.h>
+#include <stdint.h>
+#include <stddef.h>
+#include <string.h>
+
+#include "bsp_ch376.h"
+#include "bsp_speaker.h"
+#include "esp_check.h"
+#include "esp_log.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+
+static const char *TAG = "bsp_usb_player";
+
+enum {
+    USB_PLAYER_VOLUME = 5,
+    USB_PLAYER_STACK_SIZE = 4096,
+    USB_PLAYER_TASK_PRIORITY = 5,
+    USB_PLAYER_READ_BUFFER_SIZE = 512,
+    WAV_HEADER_PREFIX_SIZE = 12,
+    WAV_CHUNK_HEADER_SIZE = 8,
+    WAV_FORMAT_PCM = 1,
+    WAV_BITS_PER_SAMPLE = 16,
+};
+
+static const char USB_MUSIC_FILE[] = "/MUSIC.WAV";
+
+typedef struct {
+    uint16_t channels;
+    uint32_t sample_rate_hz;
+    uint16_t bits_per_sample;
+    uint32_t data_bytes;
+} wav_info_t;
+
+static TaskHandle_t s_usb_player_task;
+static volatile bool s_stop_requested;
+
+static uint16_t read_le16(const uint8_t *data)
+{
+    return (uint16_t)data[0] | ((uint16_t)data[1] << 8U);
+}
+
+static uint32_t read_le32(const uint8_t *data)
+{
+    return (uint32_t)data[0] | ((uint32_t)data[1] << 8U) |
+           ((uint32_t)data[2] << 16U) | ((uint32_t)data[3] << 24U);
+}
+
+static esp_err_t read_exact(uint8_t *buffer, size_t length)
+{
+    size_t offset = 0;
+    while (offset < length && !s_stop_requested) {
+        size_t bytes_read = 0;
+        ESP_RETURN_ON_ERROR(
+            bsp_ch376_file_read(buffer + offset, length - offset, &bytes_read),
+            TAG, "USB file read failed");
+        if (bytes_read == 0) {
+            return ESP_ERR_INVALID_SIZE;
+        }
+        offset += bytes_read;
+    }
+    return s_stop_requested ? ESP_ERR_INVALID_STATE : ESP_OK;
+}
+
+static esp_err_t skip_bytes(uint32_t length)
+{
+    uint8_t buffer[USB_PLAYER_READ_BUFFER_SIZE];
+    uint32_t remaining = length;
+
+    while (remaining > 0 && !s_stop_requested) {
+        const size_t request = remaining > sizeof(buffer) ? sizeof(buffer) : remaining;
+        size_t bytes_read = 0;
+        ESP_RETURN_ON_ERROR(bsp_ch376_file_read(buffer, request, &bytes_read),
+                            TAG, "Failed to skip WAV chunk");
+        if (bytes_read == 0) {
+            return ESP_ERR_INVALID_SIZE;
+        }
+        remaining -= bytes_read;
+    }
+    return s_stop_requested ? ESP_ERR_INVALID_STATE : ESP_OK;
+}
+
+static esp_err_t parse_wav_header(wav_info_t *info)
+{
+    ESP_RETURN_ON_FALSE(info != NULL, ESP_ERR_INVALID_ARG, TAG,
+                        "WAV info is NULL");
+    memset(info, 0, sizeof(*info));
+
+    uint8_t prefix[WAV_HEADER_PREFIX_SIZE];
+    ESP_RETURN_ON_ERROR(read_exact(prefix, sizeof(prefix)), TAG,
+                        "Failed to read WAV prefix");
+    ESP_RETURN_ON_FALSE(memcmp(prefix, "RIFF", 4) == 0, ESP_ERR_INVALID_RESPONSE,
+                        TAG, "USB file is not RIFF");
+    ESP_RETURN_ON_FALSE(memcmp(prefix + 8, "WAVE", 4) == 0,
+                        ESP_ERR_INVALID_RESPONSE, TAG, "USB file is not WAVE");
+
+    bool have_fmt = false;
+    while (!s_stop_requested) {
+        uint8_t chunk[WAV_CHUNK_HEADER_SIZE];
+        ESP_RETURN_ON_ERROR(read_exact(chunk, sizeof(chunk)), TAG,
+                            "Failed to read WAV chunk header");
+
+        const uint32_t chunk_size = read_le32(chunk + 4);
+        if (memcmp(chunk, "fmt ", 4) == 0) {
+            uint8_t fmt[16];
+            ESP_RETURN_ON_FALSE(chunk_size >= sizeof(fmt), ESP_ERR_INVALID_RESPONSE,
+                                TAG, "WAV fmt chunk too small");
+            ESP_RETURN_ON_ERROR(read_exact(fmt, sizeof(fmt)), TAG,
+                                "Failed to read WAV fmt chunk");
+
+            const uint16_t audio_format = read_le16(fmt);
+            info->channels = read_le16(fmt + 2);
+            info->sample_rate_hz = read_le32(fmt + 4);
+            info->bits_per_sample = read_le16(fmt + 14);
+
+            ESP_RETURN_ON_FALSE(audio_format == WAV_FORMAT_PCM,
+                                ESP_ERR_NOT_SUPPORTED, TAG,
+                                "Only PCM WAV is supported");
+            ESP_RETURN_ON_FALSE(info->channels == 1 || info->channels == 2,
+                                ESP_ERR_NOT_SUPPORTED, TAG,
+                                "Only mono/stereo WAV is supported");
+            ESP_RETURN_ON_FALSE(info->bits_per_sample == WAV_BITS_PER_SAMPLE,
+                                ESP_ERR_NOT_SUPPORTED, TAG,
+                                "Only 16-bit WAV is supported");
+
+            if (chunk_size > sizeof(fmt)) {
+                ESP_RETURN_ON_ERROR(skip_bytes(chunk_size - sizeof(fmt)), TAG,
+                                    "Failed to skip extra fmt bytes");
+            }
+            have_fmt = true;
+        } else if (memcmp(chunk, "data", 4) == 0) {
+            ESP_RETURN_ON_FALSE(have_fmt, ESP_ERR_INVALID_RESPONSE, TAG,
+                                "WAV data chunk appears before fmt chunk");
+            info->data_bytes = chunk_size;
+            return ESP_OK;
+        } else {
+            ESP_RETURN_ON_ERROR(skip_bytes(chunk_size), TAG,
+                                "Failed to skip unknown WAV chunk");
+        }
+
+        if ((chunk_size & 1U) != 0U) {
+            ESP_RETURN_ON_ERROR(skip_bytes(1), TAG, "Failed to skip WAV pad byte");
+        }
+    }
+
+    return ESP_ERR_INVALID_STATE;
+}
+
+static esp_err_t write_wav_pcm(const uint8_t *buffer, size_t bytes,
+                               uint16_t channels)
+{
+    ESP_RETURN_ON_FALSE((bytes % sizeof(int16_t)) == 0, ESP_ERR_INVALID_SIZE,
+                        TAG, "PCM data is not 16-bit aligned");
+
+    if (channels == 2) {
+        return bsp_speaker_write((const int16_t *)buffer,
+                                 bytes / sizeof(int16_t),
+                                 USB_PLAYER_VOLUME);
+    }
+
+    int16_t stereo[USB_PLAYER_READ_BUFFER_SIZE];
+    const int16_t *mono = (const int16_t *)buffer;
+    const size_t mono_samples = bytes / sizeof(int16_t);
+    for (size_t i = 0; i < mono_samples; ++i) {
+        stereo[i * 2U] = mono[i];
+        stereo[i * 2U + 1U] = mono[i];
+    }
+
+    return bsp_speaker_write(stereo, mono_samples * 2U, USB_PLAYER_VOLUME);
+}
+
+static esp_err_t play_music_file(void)
+{
+    ESP_RETURN_ON_ERROR(bsp_ch376_usb_disk_mount(), TAG,
+                        "USB disk mount failed");
+
+    esp_err_t result = bsp_ch376_file_open(USB_MUSIC_FILE);
+    if (result != ESP_OK) {
+        ESP_LOGE(TAG, "Put a PCM 16-bit WAV file at %s", USB_MUSIC_FILE);
+        return result;
+    }
+
+    wav_info_t wav = {0};
+    result = parse_wav_header(&wav);
+    if (result == ESP_OK) {
+        ESP_LOGI(TAG, "Playing %s: %" PRIu32 " Hz, %u ch, %u bits, %" PRIu32
+                      " data bytes",
+                 "MUSIC.WAV", wav.sample_rate_hz, wav.channels,
+                 wav.bits_per_sample, wav.data_bytes);
+        result = bsp_speaker_set_sample_rate(wav.sample_rate_hz);
+    }
+
+    uint8_t buffer[USB_PLAYER_READ_BUFFER_SIZE];
+    uint32_t remaining = wav.data_bytes;
+    while (result == ESP_OK && remaining > 0 && !s_stop_requested) {
+        size_t bytes_read = 0;
+        const size_t request = remaining > sizeof(buffer) ? sizeof(buffer) : remaining;
+        result = bsp_ch376_file_read(buffer, request, &bytes_read);
+        if (result != ESP_OK || bytes_read == 0) {
+            break;
+        }
+
+        const size_t aligned_bytes = bytes_read & ~(sizeof(int16_t) - 1U);
+        result = write_wav_pcm(buffer, aligned_bytes, wav.channels);
+        remaining -= bytes_read;
+    }
+
+    bsp_ch376_file_close();
+    (void)bsp_speaker_stop();
+    return result;
+}
+
+static void usb_player_task(void *argument)
+{
+    (void)argument;
+
+    const esp_err_t result = play_music_file();
+    if (result == ESP_OK) {
+        ESP_LOGI(TAG, "USB playback finished");
+    } else if (s_stop_requested) {
+        ESP_LOGI(TAG, "USB playback stopped");
+    } else {
+        ESP_LOGE(TAG, "USB playback failed: %s", esp_err_to_name(result));
+    }
+
+    s_usb_player_task = NULL;
+    vTaskDelete(NULL);
+}
+
+esp_err_t bsp_usb_player_start(void)
+{
+    if (s_usb_player_task != NULL) {
+        return ESP_OK;
+    }
+
+    s_stop_requested = false;
+    BaseType_t created = xTaskCreate(usb_player_task, "usb_player",
+                                     USB_PLAYER_STACK_SIZE, NULL,
+                                     USB_PLAYER_TASK_PRIORITY,
+                                     &s_usb_player_task);
+    if (created != pdPASS) {
+        s_usb_player_task = NULL;
+        return ESP_ERR_NO_MEM;
+    }
+
+    ESP_LOGI(TAG, "USB player task started, file=%s", USB_MUSIC_FILE);
+    return ESP_OK;
+}
+
+void bsp_usb_player_stop(void)
+{
+    s_stop_requested = true;
+}

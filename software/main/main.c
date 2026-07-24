@@ -5,6 +5,7 @@
 #include "bsp_mode.h"
 #include "bsp_oled.h"
 #include "bsp_speaker.h"
+#include "bsp_usb_player.h"
 #include "esp_err.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
@@ -34,7 +35,11 @@ static void enter_mode(bsp_mode_t mode)
             ESP_LOGI(TAG, "Bluetooth is discoverable; connect to BT Speaker");
         }
     } else if (mode == BSP_MODE_USB) {
-        ESP_LOGI(TAG, "U Disk mode selected; playback will be added after USB file read test");
+        esp_err_t usb_result = bsp_usb_player_start();
+        if (usb_result != ESP_OK) {
+            ESP_LOGE(TAG, "USB playback start failed: %s",
+                     esp_err_to_name(usb_result));
+        }
     } else if (mode == BSP_MODE_TF) {
         ESP_LOGI(TAG, "TF Card mode selected; playback will be added after TF card read test");
     } else if (mode == BSP_MODE_AUX) {
@@ -78,6 +83,9 @@ void app_main(void)
         bsp_input_poll(&input_event);
 
         if (input_event.source_pressed) {
+            if (current_mode == BSP_MODE_USB) {
+                bsp_usb_player_stop();
+            }
             current_mode = bsp_mode_next(current_mode);
             enter_mode(current_mode);
         }
