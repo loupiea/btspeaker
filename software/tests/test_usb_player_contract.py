@@ -68,6 +68,7 @@ class UsbPlayerContractTest(unittest.TestCase):
     def test_usb_player_api_and_wav_contract(self):
         header = USB_HEADER.read_text(encoding="utf-8")
         source = USB_SOURCE.read_text(encoding="utf-8")
+        self.assertIn('#include "bsp_volume.h"', source)
         self.assertIn("esp_err_t bsp_usb_player_start(void);", header)
         self.assertIn("void bsp_usb_player_stop(void);", header)
         self.assertIn('"MUSIC.WAV"', source)
@@ -77,6 +78,8 @@ class UsbPlayerContractTest(unittest.TestCase):
         self.assertIn("bsp_speaker_write", source)
         self.assertIn("xTaskCreate", source)
         self.assertIn("Check that /MUSIC.WAV exists", source)
+        self.assertIn("bsp_volume_get()", source)
+        self.assertNotIn("USB_PLAYER_VOLUME", source)
         self.assertNotIn("Put a PCM 16-bit WAV file at %s", source)
 
     def test_usb_player_logs_wav_format_and_accepts_extensible_pcm(self):

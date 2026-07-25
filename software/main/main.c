@@ -6,25 +6,32 @@
 #include "bsp_oled.h"
 #include "bsp_speaker.h"
 #include "bsp_usb_player.h"
+#include "bsp_volume.h"
 #include "esp_err.h"
 #include "esp_log.h"
+#include <stdio.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
 static const char *TAG = "app_main";
 
-static void display_mode(bsp_mode_t mode)
+static void display_status(bsp_mode_t mode)
 {
-    esp_err_t result = bsp_oled_show_lines("Mode:", bsp_mode_name(mode));
+    char volume_line[24];
+    snprintf(volume_line, sizeof(volume_line), "%s VOL %u/%u",
+             bsp_mode_name(mode), (unsigned int)bsp_volume_get(),
+             (unsigned int)BSP_VOLUME_MAX);
+
+    esp_err_t result = bsp_oled_show_lines("Mode:", volume_line);
     if (result != ESP_OK) {
-        ESP_LOGE(TAG, "OLED mode display failed: %s", esp_err_to_name(result));
+        ESP_LOGE(TAG, "OLED status display failed: %s", esp_err_to_name(result));
     }
 }
 
 static void enter_mode(bsp_mode_t mode)
 {
     ESP_LOGI(TAG, "Source mode: %s", bsp_mode_name(mode));
-    display_mode(mode);
+    display_status(mode);
 
     if (mode == BSP_MODE_BLUETOOTH) {
         esp_err_t bluetooth_result = bsp_bluetooth_a2dp_sink_start();
@@ -81,6 +88,13 @@ void app_main(void)
     while (1) {
         bsp_input_event_t input_event = {0};
         bsp_input_poll(&input_event);
+
+        if (input_event.encoder_delta != 0) {
+            bsp_volume_adjust(input_event.encoder_delta);
+            ESP_LOGI(TAG, "Volume: %u/%u", (unsigned int)bsp_volume_get(),
+                     (unsigned int)BSP_VOLUME_MAX);
+            display_status(current_mode);
+        }
 
         if (input_event.source_pressed) {
             if (current_mode == BSP_MODE_USB) {

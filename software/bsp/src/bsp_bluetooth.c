@@ -5,6 +5,7 @@
 #include <stdint.h>
 
 #include "bsp_speaker.h"
+#include "bsp_volume.h"
 #include "esp_a2dp_api.h"
 #include "esp_bt.h"
 #include "esp_bt_main.h"
@@ -14,10 +15,6 @@
 #include "nvs_flash.h"
 
 static const char *TAG = "bsp_bluetooth";
-
-enum {
-    BT_SPEAKER_VOLUME = 5,
-};
 
 static const char BT_SPEAKER_DEVICE_NAME[] = "BT Speaker";
 static bool s_bt_started;
@@ -61,7 +58,7 @@ static void a2dp_data_callback(const uint8_t *data, uint32_t len)
     const size_t sample_count = len / sizeof(int16_t);
     esp_err_t result =
         bsp_speaker_write((const int16_t *)data, sample_count,
-                          BT_SPEAKER_VOLUME);
+                          bsp_volume_get());
     if (result != ESP_OK) {
         ESP_LOGE(TAG, "Failed to write Bluetooth PCM: %s",
                  esp_err_to_name(result));
@@ -169,7 +166,7 @@ esp_err_t bsp_bluetooth_a2dp_sink_start(void)
         TAG, "Failed to make BT discoverable");
 
     s_bt_started = true;
-    ESP_LOGI(TAG, "Bluetooth A2DP sink ready: name=\"%s\", volume=%d/50",
-             BT_SPEAKER_DEVICE_NAME, BT_SPEAKER_VOLUME);
+    ESP_LOGI(TAG, "Bluetooth A2DP sink ready: name=\"%s\", volume=%u/50",
+             BT_SPEAKER_DEVICE_NAME, (unsigned int)bsp_volume_get());
     return ESP_OK;
 }

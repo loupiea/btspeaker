@@ -8,6 +8,7 @@
 
 #include "bsp_ch376.h"
 #include "bsp_speaker.h"
+#include "bsp_volume.h"
 #include "esp_check.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
@@ -16,7 +17,6 @@
 static const char *TAG = "bsp_usb_player";
 
 enum {
-    USB_PLAYER_VOLUME = 5,
     USB_PLAYER_STACK_SIZE = 4096,
     USB_PLAYER_TASK_PRIORITY = 5,
     USB_PLAYER_READ_BUFFER_SIZE = 512,
@@ -210,7 +210,7 @@ static esp_err_t write_wav_pcm(const uint8_t *buffer, size_t bytes,
     if (channels == 2) {
         return bsp_speaker_write((const int16_t *)buffer,
                                  bytes / sizeof(int16_t),
-                                 USB_PLAYER_VOLUME);
+                                 bsp_volume_get());
     }
 
     int16_t stereo[USB_PLAYER_READ_BUFFER_SIZE];
@@ -221,7 +221,7 @@ static esp_err_t write_wav_pcm(const uint8_t *buffer, size_t bytes,
         stereo[i * 2U + 1U] = mono[i];
     }
 
-    return bsp_speaker_write(stereo, mono_samples * 2U, USB_PLAYER_VOLUME);
+    return bsp_speaker_write(stereo, mono_samples * 2U, bsp_volume_get());
 }
 
 static int16_t float_to_i16(float sample)
@@ -259,7 +259,7 @@ static esp_err_t write_wav_float32(const uint8_t *buffer, size_t bytes,
         }
     }
 
-    return bsp_speaker_write(samples, output_samples, USB_PLAYER_VOLUME);
+    return bsp_speaker_write(samples, output_samples, bsp_volume_get());
 }
 
 static esp_err_t play_music_file(void)

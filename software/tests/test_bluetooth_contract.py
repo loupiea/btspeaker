@@ -17,6 +17,7 @@ class BluetoothContractTest(unittest.TestCase):
 
     def test_a2dp_sink_uses_classic_bt_and_speaker_output(self):
         text = BT_SOURCE.read_text(encoding="utf-8")
+        self.assertIn('#include "bsp_volume.h"', text)
         self.assertIn('BT_SPEAKER_DEVICE_NAME[] = "BT Speaker"', text)
         self.assertIn("esp_bt_controller_mem_release(ESP_BT_MODE_BLE)", text)
         self.assertIn("esp_bt_controller_enable(ESP_BT_MODE_CLASSIC_BT)", text)
@@ -25,6 +26,8 @@ class BluetoothContractTest(unittest.TestCase):
         self.assertIn("esp_a2d_sink_register_data_callback", text)
         self.assertIn("esp_bt_gap_set_scan_mode", text)
         self.assertIn("bsp_speaker_write", text)
+        self.assertIn("bsp_volume_get()", text)
+        self.assertNotIn("BT_SPEAKER_VOLUME", text)
 
     def test_component_compiles_bluetooth_driver(self):
         text = COMPONENT_CMAKE.read_text(encoding="utf-8")
