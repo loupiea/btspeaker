@@ -5,6 +5,7 @@ import unittest
 PROJECT = Path(__file__).resolve().parents[1]
 HEADER = PROJECT / "bsp" / "include" / "bsp_ch376.h"
 SOURCE = PROJECT / "bsp" / "src" / "bsp_ch376.c"
+PINS_HEADER = PROJECT / "bsp" / "include" / "bsp_pins.h"
 COMPONENT_CMAKE = PROJECT / "bsp" / "CMakeLists.txt"
 MAIN = PROJECT / "main" / "main.c"
 
@@ -39,6 +40,18 @@ class Ch376ContractTest(unittest.TestCase):
         self.assertIn("reset_chip()", text)
         self.assertIn("CHECK_EXIST mismatch", text)
         self.assertIn("CHECK_EXIST retry", text)
+
+    def test_hardware_reset_uses_gpio4_active_high_rsti(self):
+        pins = PINS_HEADER.read_text(encoding="utf-8")
+        source = SOURCE.read_text(encoding="utf-8")
+        self.assertIn("#define BSP_CH376S_RST_GPIO       GPIO_NUM_4", pins)
+        self.assertIn("CH376_HARD_RESET_HIGH_MS", source)
+        self.assertIn("CH376_HARD_RESET_RELEASE_MS", source)
+        self.assertIn("hardware_reset_chip", source)
+        self.assertIn("gpio_set_level(BSP_CH376S_RST_GPIO, 1)", source)
+        self.assertIn("gpio_set_level(BSP_CH376S_RST_GPIO, 0)", source)
+        self.assertIn("CH376S hardware reset finished", source)
+        self.assertIn("hardware_reset_chip()", source)
 
     def test_component_compiles_driver(self):
         text = COMPONENT_CMAKE.read_text(encoding="utf-8")

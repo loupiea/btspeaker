@@ -46,6 +46,8 @@ enum {
     CH376_FILE_OPEN_ATTEMPTS = 3,
     CH376_FILE_OPEN_RETRY_DELAY_MS = 250,
     CH376_MOUNT_ATTEMPTS = 5,
+    CH376_HARD_RESET_HIGH_MS = 20,
+    CH376_HARD_RESET_RELEASE_MS = 200,
     CH376_RESET_DELAY_MS = 150,
     CH376_SINGLE_PACKET_READ = 64,
     CH376_MAX_FILE_READ_CHUNK = 255,
@@ -150,6 +152,18 @@ static esp_err_t reset_chip(void)
                         "RESET_ALL transfer failed");
     vTaskDelay(pdMS_TO_TICKS(CH376_RESET_DELAY_MS));
     ESP_LOGI(TAG, "CH376S reset finished");
+    return ESP_OK;
+}
+
+static esp_err_t hardware_reset_chip(void)
+{
+    ESP_RETURN_ON_ERROR(gpio_set_level(BSP_CH376S_RST_GPIO, 1), TAG,
+                        "Failed to assert CH376S RSTI");
+    vTaskDelay(pdMS_TO_TICKS(CH376_HARD_RESET_HIGH_MS));
+    ESP_RETURN_ON_ERROR(gpio_set_level(BSP_CH376S_RST_GPIO, 0), TAG,
+                        "Failed to release CH376S RSTI");
+    vTaskDelay(pdMS_TO_TICKS(CH376_HARD_RESET_RELEASE_MS));
+    ESP_LOGI(TAG, "CH376S hardware reset finished");
     return ESP_OK;
 }
 
@@ -260,11 +274,22 @@ esp_err_t bsp_ch376_init(void)
         .pull_down_en = GPIO_PULLDOWN_DISABLE,
         .intr_type = GPIO_INTR_DISABLE,
     };
+    const gpio_config_t reset_config = {
+        .pin_bit_mask = (1ULL << BSP_CH376S_RST_GPIO),
+        .mode = GPIO_MODE_OUTPUT,
+        .pull_up_en = GPIO_PULLUP_DISABLE,
+        .pull_down_en = GPIO_PULLDOWN_DISABLE,
+        .intr_type = GPIO_INTR_DISABLE,
+    };
     ESP_RETURN_ON_ERROR(gpio_config(&cs_config), TAG, "Failed to configure CS pins");
+    ESP_RETURN_ON_ERROR(gpio_config(&reset_config), TAG,
+                        "Failed to configure CH376S reset pin");
     ESP_RETURN_ON_ERROR(gpio_set_level(BSP_SD_CS_GPIO, 1), TAG,
                         "Failed to deselect TF card");
     ESP_RETURN_ON_ERROR(gpio_set_level(BSP_CH376S_CS_GPIO, 1), TAG,
                         "Failed to deselect CH376S");
+    ESP_RETURN_ON_ERROR(gpio_set_level(BSP_CH376S_RST_GPIO, 0), TAG,
+                        "Failed to release CH376S reset");
 
     const spi_bus_config_t bus_config = {
         .mosi_io_num = BSP_SPI_MOSI_GPIO,
@@ -295,9 +320,9 @@ esp_err_t bsp_ch376_init(void)
         return result;
     }
 
-    ESP_LOGI(TAG, "CH376S SPI initialized: SCLK=%d, MISO=%d, MOSI=%d, CS=%d",
+    ESP_LOGI(TAG, "CH376S SPI initialized: SCLK=%d, MISO=%d, MOSI=%d, CS=%d, RSTI=%d active-high",
              BSP_SPI_SCLK_GPIO, BSP_SPI_MISO_GPIO,
-             BSP_SPI_MOSI_GPIO, BSP_CH376S_CS_GPIO);
+             BSP_SPI_MOSI_GPIO, BSP_CH376S_CS_GPIO, BSP_CH376S_RST_GPIO);
     return ESP_OK;
 }
 
@@ -388,6 +413,7 @@ esp_err_t bsp_ch376_get_version(uint8_t *version)
 esp_err_t bsp_ch376_usb_disk_mount(void)
 {
     ESP_RETURN_ON_ERROR(bsp_ch376_init(), TAG, "CH376 init failed");
+    ESP_RETURN_ON_ERROR(hardware_reset_chip(), TAG, "CH376 hardware reset failed");
     ESP_RETURN_ON_ERROR(reset_chip(), TAG, "CH376 reset failed");
     ESP_RETURN_ON_ERROR(set_usb_host_mode(), TAG, "SET_USB_MODE failed");
 

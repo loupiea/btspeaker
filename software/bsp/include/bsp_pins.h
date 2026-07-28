@@ -24,6 +24,7 @@
 #define BSP_SPI_MOSI_GPIO         GPIO_NUM_23
 #define BSP_SD_CS_GPIO            GPIO_NUM_5
 #define BSP_CH376S_CS_GPIO        GPIO_NUM_15
+#define BSP_CH376S_RST_GPIO       GPIO_NUM_4
 
 /* User input. GPIO34 and GPIO39 require external pull-up resistors. */
 #define BSP_ENCODER_A_GPIO        GPIO_NUM_34
