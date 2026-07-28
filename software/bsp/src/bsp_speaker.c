@@ -21,6 +21,10 @@ enum {
     SPEAKER_SAMPLE_RATE_HZ = 16000,
     SPEAKER_FRAMES_PER_BUFFER = 128,
     SPEAKER_MAX_VOLUME = 50,
+    SPEAKER_TEST_TONE_HZ = 1000,
+    SPEAKER_TEST_VOLUME = 10,
+    SPEAKER_TEST_DURATION_MS = 1000,
+    SPEAKER_TEST_AMPLITUDE = 12000,
 };
 
 static i2s_chan_handle_t s_tx_channel;
@@ -203,5 +207,48 @@ esp_err_t bsp_speaker_stop(void)
     ESP_RETURN_ON_ERROR(i2s_channel_disable(s_tx_channel), TAG,
                         "Failed to disable I2S speaker channel");
     s_speaker_started = false;
+    return ESP_OK;
+}
+
+esp_err_t bsp_speaker_run_self_test(void)
+{
+    ESP_RETURN_ON_ERROR(bsp_speaker_set_sample_rate(SPEAKER_SAMPLE_RATE_HZ),
+                        TAG, "Failed to set speaker self-test sample rate");
+
+    const uint32_t total_frames =
+        (SPEAKER_SAMPLE_RATE_HZ * SPEAKER_TEST_DURATION_MS) / 1000U;
+    const uint32_t half_period_frames =
+        SPEAKER_SAMPLE_RATE_HZ / (SPEAKER_TEST_TONE_HZ * 2U);
+    int16_t samples[SPEAKER_FRAMES_PER_BUFFER * 2U];
+    uint32_t frames_written = 0;
+
+    ESP_LOGI(TAG, "Speaker self-test tone started: %d Hz, volume=%d/50",
+             SPEAKER_TEST_TONE_HZ, SPEAKER_TEST_VOLUME);
+
+    while (frames_written < total_frames) {
+        const uint32_t frames_this_buffer =
+            (total_frames - frames_written) > SPEAKER_FRAMES_PER_BUFFER
+                ? SPEAKER_FRAMES_PER_BUFFER
+                : (total_frames - frames_written);
+
+        for (uint32_t i = 0; i < frames_this_buffer; ++i) {
+            const uint32_t frame = frames_written + i;
+            const int16_t sample =
+                ((frame / half_period_frames) & 1U) == 0U
+                    ? SPEAKER_TEST_AMPLITUDE
+                    : -SPEAKER_TEST_AMPLITUDE;
+            samples[i * 2U] = sample;
+            samples[i * 2U + 1U] = sample;
+        }
+
+        ESP_RETURN_ON_ERROR(bsp_speaker_write(samples, frames_this_buffer * 2U,
+                                              SPEAKER_TEST_VOLUME),
+                            TAG, "Failed to write speaker self-test tone");
+        frames_written += frames_this_buffer;
+    }
+
+    ESP_RETURN_ON_ERROR(bsp_speaker_stop(), TAG,
+                        "Failed to stop speaker self-test tone");
+    ESP_LOGI(TAG, "Speaker self-test tone finished");
     return ESP_OK;
 }

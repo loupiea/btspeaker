@@ -25,6 +25,9 @@ esp_err_t bsp_speaker_set_sample_rate(uint32_t sample_rate_hz);
 /** Stop the speaker stream output path and mute the amplifiers. */
 esp_err_t bsp_speaker_stop(void);
 
+/** Play a short boot-time tone to verify the amplifier and I2S path. */
+esp_err_t bsp_speaker_run_self_test(void);
+
 #ifdef __cplusplus
 }
 #endif
