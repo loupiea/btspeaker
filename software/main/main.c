@@ -59,12 +59,6 @@ void app_main(void)
     bsp_board_init();
     bsp_board_print_info();
 
-    esp_err_t speaker_test_result = bsp_speaker_run_self_test();
-    if (speaker_test_result != ESP_OK) {
-        ESP_LOGE(TAG, "Speaker self-test failed: %s",
-                 esp_err_to_name(speaker_test_result));
-    }
-
     uint8_t response = 0;
     uint8_t version = 0;
 
