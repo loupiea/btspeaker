@@ -14,6 +14,7 @@ class BluetoothContractTest(unittest.TestCase):
     def test_public_api_exists(self):
         text = BT_HEADER.read_text(encoding="utf-8")
         self.assertIn("esp_err_t bsp_bluetooth_a2dp_sink_start(void);", text)
+        self.assertIn("void bsp_bluetooth_a2dp_sink_stop(void);", text)
 
     def test_a2dp_sink_uses_classic_bt_and_speaker_output(self):
         text = BT_SOURCE.read_text(encoding="utf-8")
@@ -41,13 +42,13 @@ class BluetoothContractTest(unittest.TestCase):
         self.assertIn("CONFIG_BT_CLASSIC_ENABLED=y", text)
         self.assertIn("CONFIG_BT_A2DP_ENABLE=y", text)
 
-    def test_main_can_start_bluetooth_and_skips_aux_self_test(self):
+    def test_main_can_start_bluetooth_mode(self):
         text = MAIN.read_text(encoding="utf-8")
         self.assertIn('#include "bsp_bluetooth.h"', text)
         self.assertIn("bsp_bluetooth_a2dp_sink_start()", text)
         self.assertIn("if (mode == BSP_MODE_BLUETOOTH)", text)
-        self.assertIn("current_mode = BSP_MODE_USB", text)
-        self.assertNotIn("bsp_aux_run_self_test()", text)
+        self.assertIn("current_mode = BSP_MODE_BLUETOOTH", text)
+        self.assertIn("bsp_bluetooth_a2dp_sink_stop()", text)
 
 
 if __name__ == "__main__":

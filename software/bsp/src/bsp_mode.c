@@ -4,8 +4,6 @@ bsp_mode_t bsp_mode_next(bsp_mode_t mode)
 {
     switch (mode) {
     case BSP_MODE_BLUETOOTH:
-        return BSP_MODE_USB;
-    case BSP_MODE_USB:
         return BSP_MODE_TF;
     case BSP_MODE_TF:
         return BSP_MODE_AUX;
@@ -20,8 +18,6 @@ const char *bsp_mode_name(bsp_mode_t mode)
     switch (mode) {
     case BSP_MODE_BLUETOOTH:
         return "Bluetooth";
-    case BSP_MODE_USB:
-        return "U Disk";
     case BSP_MODE_TF:
         return "TF Card";
     case BSP_MODE_AUX:

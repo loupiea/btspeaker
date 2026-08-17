@@ -9,8 +9,11 @@ extern "C" {
 /** Initialize ES8388 AUX capture over I2C and I2S1. */
 esp_err_t bsp_aux_init(void);
 
-/** Play AUX input through the speaker path for a short hardware test. */
-esp_err_t bsp_aux_run_self_test(void);
+/** Start continuous AUX input playback through the speaker path. */
+esp_err_t bsp_aux_start(void);
+
+/** Stop AUX input playback and release the speaker output. */
+void bsp_aux_stop(void);
 
 #ifdef __cplusplus
 }

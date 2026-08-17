@@ -26,6 +26,8 @@ enum {
 static i2s_chan_handle_t s_tx_channel;
 static bool s_speaker_started;
 static uint32_t s_sample_rate_hz = SPEAKER_SAMPLE_RATE_HZ;
+static uint32_t s_write_log_count;
+static bool s_amp_enable_logged;
 
 static uint8_t clamp_volume(uint8_t volume)
 {
@@ -40,12 +42,8 @@ static int16_t speaker_scale_sample(int16_t sample, uint8_t volume)
     return (int16_t)((int32_t)sample * clamp_volume(volume) / SPEAKER_MAX_VOLUME);
 }
 
-esp_err_t bsp_speaker_init(void)
+static esp_err_t speaker_configure_amp_sd(void)
 {
-    if (s_tx_channel != NULL) {
-        return ESP_OK;
-    }
-
     const gpio_config_t amp_sd_config = {
         .pin_bit_mask = 1ULL << BSP_AMP_SD_GPIO,
         .mode = GPIO_MODE_OUTPUT,
@@ -53,7 +51,31 @@ esp_err_t bsp_speaker_init(void)
         .pull_down_en = GPIO_PULLDOWN_DISABLE,
         .intr_type = GPIO_INTR_DISABLE,
     };
-    ESP_RETURN_ON_ERROR(gpio_config(&amp_sd_config), TAG,
+    return gpio_config(&amp_sd_config);
+}
+
+static esp_err_t speaker_enable_amplifier(void)
+{
+    ESP_RETURN_ON_ERROR(speaker_configure_amp_sd(), TAG,
+                        "Failed to configure amplifier enable");
+    ESP_RETURN_ON_ERROR(gpio_set_level(BSP_AMP_SD_GPIO, 1), TAG,
+                        "Failed to enable amplifier");
+    vTaskDelay(pdMS_TO_TICKS(2));
+    if (!s_amp_enable_logged) {
+        ESP_LOGI(TAG, "Amplifier enabled: SD=%d",
+                 gpio_get_level(BSP_AMP_SD_GPIO));
+        s_amp_enable_logged = true;
+    }
+    return ESP_OK;
+}
+
+esp_err_t bsp_speaker_init(void)
+{
+    if (s_tx_channel != NULL) {
+        return ESP_OK;
+    }
+
+    ESP_RETURN_ON_ERROR(speaker_configure_amp_sd(), TAG,
                         "Failed to configure amplifier enable");
     ESP_RETURN_ON_ERROR(gpio_set_level(BSP_AMP_SD_GPIO, 0), TAG,
                         "Failed to mute amplifier");
@@ -66,7 +88,7 @@ esp_err_t bsp_speaker_init(void)
     const i2s_std_config_t std_cfg = {
         .clk_cfg = I2S_STD_CLK_DEFAULT_CONFIG(s_sample_rate_hz),
         .slot_cfg = I2S_STD_PHILIPS_SLOT_DEFAULT_CONFIG(
-            I2S_DATA_BIT_WIDTH_16BIT, I2S_SLOT_MODE_STEREO),
+            I2S_DATA_BIT_WIDTH_32BIT, I2S_SLOT_MODE_STEREO),
         .gpio_cfg = {
             .mclk = I2S_GPIO_UNUSED,
             .bclk = BSP_AMP_BCLK_GPIO,
@@ -90,7 +112,8 @@ esp_err_t bsp_speaker_init(void)
         return result;
     }
 
-    ESP_LOGI(TAG, "Speaker I2S initialized: BCLK=%d, LRCLK=%d, DOUT=%d, SD=%d",
+    ESP_LOGI(TAG,
+             "Speaker I2S initialized: BCLK=%d, LRCLK=%d, DOUT=%d, SD=%d, slot=32-bit",
              BSP_AMP_BCLK_GPIO, BSP_AMP_LRCLK_GPIO,
              BSP_AMP_DOUT_GPIO, BSP_AMP_SD_GPIO);
     return ESP_OK;
@@ -143,13 +166,15 @@ esp_err_t bsp_speaker_start(void)
     ESP_RETURN_ON_ERROR(bsp_speaker_init(), TAG, "Speaker init failed");
 
     if (!s_speaker_started) {
-        ESP_RETURN_ON_ERROR(i2s_channel_enable(s_tx_channel), TAG,
-                            "Failed to enable I2S speaker channel");
-
-        esp_err_t result = gpio_set_level(BSP_AMP_SD_GPIO, 1);
+        esp_err_t result = speaker_enable_amplifier();
         if (result != ESP_OK) {
-            i2s_channel_disable(s_tx_channel);
-            ESP_LOGE(TAG, "Failed to enable amplifier: %s",
+            return result;
+        }
+
+        result = i2s_channel_enable(s_tx_channel);
+        if (result != ESP_OK) {
+            (void)gpio_set_level(BSP_AMP_SD_GPIO, 0);
+            ESP_LOGE(TAG, "Failed to enable I2S speaker channel: %s",
                      esp_err_to_name(result));
             return result;
         }
@@ -166,7 +191,7 @@ esp_err_t bsp_speaker_write(const int16_t *samples, size_t sample_count,
                         "Speaker samples are NULL");
     ESP_RETURN_ON_ERROR(bsp_speaker_start(), TAG, "Speaker start failed");
 
-    int16_t scaled_samples[SPEAKER_FRAMES_PER_BUFFER * 2U];
+    int32_t scaled_samples[SPEAKER_FRAMES_PER_BUFFER * 2U];
     size_t sample_index = 0;
 
     while (sample_index < sample_count) {
@@ -176,8 +201,10 @@ esp_err_t bsp_speaker_write(const int16_t *samples, size_t sample_count,
                 : (sample_count - sample_index);
 
         for (size_t i = 0; i < samples_this_buffer; ++i) {
-            scaled_samples[i] = speaker_scale_sample(samples[sample_index + i],
-                                                     volume);
+            scaled_samples[i] =
+                (int32_t)speaker_scale_sample(samples[sample_index + i],
+                                              volume)
+                << 16;
         }
 
         size_t bytes_written = 0;
@@ -186,6 +213,33 @@ esp_err_t bsp_speaker_write(const int16_t *samples, size_t sample_count,
                               samples_this_buffer * sizeof(scaled_samples[0]),
                               &bytes_written, 1000),
             TAG, "Failed to write speaker samples");
+
+        if (s_write_log_count < 8U) {
+            int16_t sample_peak = 0;
+            int16_t scaled_peak = 0;
+            for (size_t i = 0; i < samples_this_buffer; ++i) {
+                const int16_t sample = samples[sample_index + i];
+                const int16_t scaled =
+                    speaker_scale_sample(sample, volume);
+                const int16_t sample_abs =
+                    sample < 0 ? (int16_t)-sample : sample;
+                const int16_t scaled_abs =
+                    scaled < 0 ? (int16_t)-scaled : scaled;
+                if (sample_abs > sample_peak) {
+                    sample_peak = sample_abs;
+                }
+                if (scaled_abs > scaled_peak) {
+                    scaled_peak = scaled_abs;
+                }
+            }
+
+            ESP_LOGI(TAG,
+                     "Speaker write: samples=%u, volume=%u/%u, sample_peak=%d, scaled_peak=%d, bytes_written=%u, amp_sd=%d",
+                     (unsigned)samples_this_buffer, (unsigned)clamp_volume(volume),
+                     (unsigned)SPEAKER_MAX_VOLUME, sample_peak, scaled_peak,
+                     (unsigned)bytes_written, gpio_get_level(BSP_AMP_SD_GPIO));
+            s_write_log_count++;
+        }
         sample_index += samples_this_buffer;
     }
 

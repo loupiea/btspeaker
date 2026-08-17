@@ -6,7 +6,6 @@ extern "C" {
 
 typedef enum {
     BSP_MODE_BLUETOOTH = 0,
-    BSP_MODE_USB,
     BSP_MODE_TF,
     BSP_MODE_AUX,
 } bsp_mode_t;

@@ -18,26 +18,24 @@ class ModeContractTest(unittest.TestCase):
         text = MODE_HEADER.read_text(encoding="utf-8")
         self.assertIn("typedef enum", text)
         self.assertIn("BSP_MODE_BLUETOOTH", text)
-        self.assertIn("BSP_MODE_USB", text)
         self.assertIn("BSP_MODE_TF", text)
         self.assertIn("BSP_MODE_AUX", text)
+        self.assertNotIn("BSP_MODE_USB", text)
         self.assertIn("bsp_mode_next", text)
         self.assertIn("bsp_mode_name", text)
 
-    def test_mode_cycles_bluetooth_usb_tf_aux(self):
+    def test_mode_cycles_bluetooth_tf_aux(self):
         text = MODE_SOURCE.read_text(encoding="utf-8")
         self.assertIn("case BSP_MODE_BLUETOOTH:", text)
-        self.assertIn("return BSP_MODE_USB;", text)
-        self.assertIn("case BSP_MODE_USB:", text)
         self.assertIn("return BSP_MODE_TF;", text)
         self.assertIn("case BSP_MODE_TF:", text)
         self.assertIn("return BSP_MODE_AUX;", text)
         self.assertIn("case BSP_MODE_AUX:", text)
         self.assertIn("return BSP_MODE_BLUETOOTH;", text)
         self.assertIn('"Bluetooth"', text)
-        self.assertIn('"U Disk"', text)
         self.assertIn('"TF Card"', text)
         self.assertIn('"AUX"', text)
+        self.assertNotIn('"U Disk"', text)
 
     def test_oled_exposes_text_display_for_mode(self):
         header = OLED_HEADER.read_text(encoding="utf-8")
@@ -72,7 +70,7 @@ class ModeContractTest(unittest.TestCase):
         self.assertIn('#include "bsp_volume.h"', text)
         self.assertIn("bsp_input_init()", text)
         self.assertIn("BSP_MODE_BLUETOOTH", text)
-        self.assertIn("current_mode = BSP_MODE_USB", text)
+        self.assertIn("current_mode = BSP_MODE_BLUETOOTH", text)
         self.assertIn("BSP_MODE_TF", text)
         self.assertIn("input_event.source_pressed", text)
         self.assertIn("bsp_mode_next(current_mode)", text)

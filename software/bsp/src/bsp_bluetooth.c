@@ -18,6 +18,7 @@ static const char *TAG = "bsp_bluetooth";
 
 static const char BT_SPEAKER_DEVICE_NAME[] = "BT Speaker";
 static bool s_bt_started;
+static volatile bool s_playback_enabled;
 
 static esp_err_t init_nvs_for_bluetooth(void)
 {
@@ -51,7 +52,7 @@ static uint32_t sample_rate_from_sbc_config(const esp_a2d_mcc_t *codec)
 
 static void a2dp_data_callback(const uint8_t *data, uint32_t len)
 {
-    if (data == NULL || len == 0U) {
+    if (!s_playback_enabled || data == NULL || len == 0U) {
         return;
     }
 
@@ -79,6 +80,10 @@ static void a2dp_event_callback(esp_a2d_cb_event_t event,
         break;
 
     case ESP_A2D_AUDIO_CFG_EVT: {
+        if (!s_playback_enabled) {
+            ESP_LOGD(TAG, "Ignoring A2DP audio config outside Bluetooth mode");
+            break;
+        }
         const uint32_t sample_rate_hz =
             sample_rate_from_sbc_config(&param->audio_cfg.mcc);
         esp_err_t result = bsp_speaker_set_sample_rate(sample_rate_hz);
@@ -127,6 +132,9 @@ static void gap_event_callback(esp_bt_gap_cb_event_t event,
 esp_err_t bsp_bluetooth_a2dp_sink_start(void)
 {
     if (s_bt_started) {
+        s_playback_enabled = true;
+        (void)esp_bt_gap_set_scan_mode(ESP_BT_CONNECTABLE,
+                                      ESP_BT_GENERAL_DISCOVERABLE);
         return ESP_OK;
     }
 
@@ -166,7 +174,18 @@ esp_err_t bsp_bluetooth_a2dp_sink_start(void)
         TAG, "Failed to make BT discoverable");
 
     s_bt_started = true;
+    s_playback_enabled = true;
     ESP_LOGI(TAG, "Bluetooth A2DP sink ready: name=\"%s\", volume=%u/50",
              BT_SPEAKER_DEVICE_NAME, (unsigned int)bsp_volume_get());
     return ESP_OK;
+}
+
+void bsp_bluetooth_a2dp_sink_stop(void)
+{
+    s_playback_enabled = false;
+    if (s_bt_started) {
+        (void)esp_bt_gap_set_scan_mode(ESP_BT_NON_CONNECTABLE,
+                                      ESP_BT_NON_DISCOVERABLE);
+    }
+    (void)bsp_speaker_stop();
 }

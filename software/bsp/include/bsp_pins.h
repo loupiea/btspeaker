@@ -13,7 +13,7 @@
 #define BSP_AMP_SD_GPIO           GPIO_NUM_16
 
 /* I2S1 input: ES8388 AUX audio capture. */
-#define BSP_AUX_MCLK_GPIO         GPIO_NUM_33
+#define BSP_AUX_MCLK_GPIO         GPIO_NUM_0
 #define BSP_AUX_BCLK_GPIO         GPIO_NUM_32
 #define BSP_AUX_LRCLK_GPIO        GPIO_NUM_17
 #define BSP_AUX_DIN_GPIO          GPIO_NUM_35

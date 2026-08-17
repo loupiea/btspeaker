@@ -32,6 +32,30 @@ class SpeakerContractTest(unittest.TestCase):
         self.assertNotIn("SPEAKER_TEST_VOLUME", text)
         self.assertNotIn("SPEAKER_TEST_DURATION_MS", text)
 
+    def test_driver_sends_16bit_pcm_in_32bit_i2s_slots(self):
+        text = SOURCE.read_text(encoding="utf-8")
+        self.assertIn("I2S_DATA_BIT_WIDTH_32BIT", text)
+        self.assertIn("int32_t scaled_samples", text)
+        self.assertIn("<< 16", text)
+        self.assertIn("sizeof(scaled_samples[0])", text)
+
+    def test_driver_logs_first_speaker_write_for_audio_debug(self):
+        text = SOURCE.read_text(encoding="utf-8")
+        self.assertIn("s_write_log_count", text)
+        self.assertIn("Speaker write:", text)
+        self.assertIn("sample_peak", text)
+        self.assertIn("scaled_peak", text)
+        self.assertIn("amp_sd=%d", text)
+        self.assertIn("bytes_written=%u", text)
+
+    def test_driver_reconfigures_amp_sd_when_starting_playback(self):
+        text = SOURCE.read_text(encoding="utf-8")
+        self.assertIn("speaker_configure_amp_sd", text)
+        self.assertIn("speaker_enable_amplifier", text)
+        self.assertIn("gpio_config(&amp_sd_config)", text)
+        self.assertIn("gpio_set_level(BSP_AMP_SD_GPIO, 1)", text)
+        self.assertIn("Amplifier enabled: SD=%d", text)
+
     def test_component_compiles_driver(self):
         text = COMPONENT_CMAKE.read_text(encoding="utf-8")
         self.assertIn('"src/bsp_speaker.c"', text)
@@ -39,7 +63,6 @@ class SpeakerContractTest(unittest.TestCase):
 
     def test_main_does_not_run_speaker_test(self):
         text = MAIN.read_text(encoding="utf-8")
-        self.assertIn('#include "bsp_speaker.h"', text)
         self.assertNotIn("bsp_speaker_run_self_test()", text)
         self.assertNotIn("Speaker self-test failed", text)
 

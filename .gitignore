@@ -1,0 +1,44 @@
+# Local editor and development environment
+.vscode/
+.idea/
+.devcontainer/
+.clangd
+.clangd/
+.superpowers/
+
+# Build products and generated configuration
+**/build/
+**/sdkconfig
+**/sdkconfig.old
+**/managed_components/
+**/dependencies.lock
+*.elf
+*.map
+*.o
+*.a
+
+# Logs, caches and temporary files
+*.log
+**/__pycache__/
+*.py[cod]
+*.tmp
+*.bak
+*.swp
+*~
+~$*
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Hardware editor automatic backups (keep source, BOM and Gerber files)
+hardware/*_backup/
+hardware/**/*_backup/
+
+# Local credentials and environment overrides
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
