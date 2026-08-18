@@ -133,6 +133,18 @@ python -m unittest discover -s software/tests -v
 
 测试覆盖音源状态机、Bluetooth A2DP、TF WAV 播放、AUX 连续播放、I2S 功放、OLED、分区配置和组件构建清单。
 
+## 硬件设计
+
+| PCB 顶层布局与走线 | PCB 底层走线与铺铜 |
+|---|---|
+| ![ESP32 多音源蓝牙音箱 PCB 顶层布局与走线](docs/images/pcb-layout-top.png) | ![ESP32 多音源蓝牙音箱 PCB 底层走线与铺铜](docs/images/pcb-layout-bottom.png) |
+
+| MCU 与电源原理图 | 音频与存储原理图 |
+|---|---|
+| ![ESP32、IP5306、电池及 3.3V 电源原理图](docs/images/schematic-mcu-power.png) | ![TF、AUX、ES8388、MAX98357A 音频与存储原理图](docs/images/schematic-audio-storage.png) |
+
+原理图与 PCB 保留了早期版本的 CH376S/U 盘硬件设计，用于记录方案演进；当前固件已经移除 U 盘播放驱动，现行状态机仅包含 Bluetooth、TF 和 AUX 三种音源。
+
 ## 实物与演示
 
 | PCB 正面 | PCB 背面 |
