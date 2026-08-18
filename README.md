@@ -133,13 +133,13 @@ python -m unittest discover -s software/tests -v
 
 测试覆盖音源状态机、Bluetooth A2DP、TF WAV 播放、AUX 连续播放、I2S 功放、OLED、分区配置和组件构建清单。
 
-## 实物演示
+## 实物与演示
 
-仓库目前没有可公开的实物演示素材。完成板卡复验后，建议补充以下内容：
+| PCB 正面 | PCB 背面 |
+|---|---|
+| ![ESP32 多音源蓝牙音箱 PCB 正面](docs/images/pcb-front.jpg) | ![ESP32 多音源蓝牙音箱 PCB 背面](docs/images/pcb-back.jpg) |
 
-- `docs/images/prototype.jpg`：PCB 与整机照片。
-- `docs/images/architecture.jpg`：实物接口标注图。
-- 30–60 秒演示视频：依次展示蓝牙、TF、AUX 切换和音量调节，并把链接放在本节。
+以上照片展示已完成焊接的 PCB 实物，不代表 Bluetooth、TF、AUX、续航、温升及长时间稳定性已经完成全部实机验收。后续将补充 30–60 秒演示视频，依次展示蓝牙、TF、AUX 切换和音量调节。
 
 ## 项目资料
 
